@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import * as api from "./api";
 import {
   WORK_TYPES, PHASES, DISCIPLINES, SEVERITIES, ENVIRONMENTS, SOW_WORK_TYPES,
@@ -97,6 +97,12 @@ function Dashboard({ user, onLogout }) {
   const [filterSeverity, setFilterSeverity] = useState("All");
   const [filterWorkType, setFilterWorkType] = useState("All");
 
+  // Pagination & loading
+  const [lessonsPage, setLessonsPage] = useState(1);
+  const [lessonsCount, setLessonsCount] = useState(0);
+  const [lessonsLoading, setLessonsLoading] = useState(false);
+  const searchTimerRef = useRef(null);
+
   // Import
   const importRef = useRef(null);
   const [importResult, setImportResult] = useState(null);
@@ -136,7 +142,8 @@ function Dashboard({ user, onLogout }) {
           setOrg(o);
           setOrgForm({ name: o.name, profile_text: o.profile_text || "" });
           const lessonData = await api.getLessons(o.id);
-          setLessons(lessonData.results || lessonData);
+          setLessons(lessonData.results || []);
+          setLessonsCount(lessonData.count || 0);
         }
       } catch (err) {
         console.error("Load failed:", err);
@@ -148,26 +155,63 @@ function Dashboard({ user, onLogout }) {
 
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
 
-  const refreshLessons = useCallback(async () => {
+  const fetchLessons = useCallback(async (page, search, discipline, severity, workType) => {
     if (!org) return;
-    const data = await api.getLessons(org.id);
-    setLessons(data.results || data);
+    setLessonsLoading(true);
+    try {
+      const params = { page };
+      if (search) params.search = search;
+      if (discipline && discipline !== "All") params.discipline = discipline;
+      if (severity && severity !== "All") params.severity = severity;
+      if (workType && workType !== "All") params.work_type = workType;
+      const data = await api.getLessons(org.id, params);
+      setLessons(data.results || []);
+      setLessonsCount(data.count || 0);
+    } catch (err) {
+      console.error("Failed to fetch lessons:", err);
+    } finally {
+      setLessonsLoading(false);
+    }
   }, [org]);
 
-  // Filtered lessons
-  const filtered = useMemo(() => {
-    return lessons.filter(l => {
-      if (filterDiscipline !== "All" && l.discipline !== filterDiscipline) return false;
-      if (filterSeverity !== "All" && l.severity !== filterSeverity) return false;
-      if (filterWorkType !== "All" && l.work_type !== filterWorkType) return false;
-      if (searchText) {
-        const q = searchText.toLowerCase();
-        const s = [l.title, l.description, l.root_cause, l.recommendation, l.keywords, l.project, l.location].join(" ").toLowerCase();
-        if (!s.includes(q)) return false;
-      }
-      return true;
-    });
-  }, [lessons, filterDiscipline, filterSeverity, filterWorkType, searchText]);
+  const refreshLessons = useCallback(() => {
+    return fetchLessons(lessonsPage, searchText, filterDiscipline, filterSeverity, filterWorkType);
+  }, [fetchLessons, lessonsPage, searchText, filterDiscipline, filterSeverity, filterWorkType]);
+
+  const totalPages = Math.ceil(lessonsCount / 50) || 1;
+
+  const handleSearchChange = (val) => {
+    setSearchText(val);
+    clearTimeout(searchTimerRef.current);
+    searchTimerRef.current = setTimeout(() => {
+      setLessonsPage(1);
+      fetchLessons(1, val, filterDiscipline, filterSeverity, filterWorkType);
+    }, 300);
+  };
+
+  const handleDisciplineChange = (val) => {
+    setFilterDiscipline(val);
+    setLessonsPage(1);
+    fetchLessons(1, searchText, val, filterSeverity, filterWorkType);
+  };
+
+  const handleSeverityChange = (val) => {
+    setFilterSeverity(val);
+    setLessonsPage(1);
+    fetchLessons(1, searchText, filterDiscipline, val, filterWorkType);
+  };
+
+  const handleWorkTypeChange = (val) => {
+    setFilterWorkType(val);
+    setLessonsPage(1);
+    fetchLessons(1, searchText, filterDiscipline, filterSeverity, val);
+  };
+
+  const handlePageChange = (newPage) => {
+    if (newPage < 1 || newPage > totalPages) return;
+    setLessonsPage(newPage);
+    fetchLessons(newPage, searchText, filterDiscipline, filterSeverity, filterWorkType);
+  };
 
   // ── Handlers ──
   const setField = (k, v) => setForm(prev => ({ ...prev, [k]: v }));
@@ -177,10 +221,12 @@ function Dashboard({ user, onLogout }) {
     try {
       if (editId) {
         await api.updateLesson(editId, form);
+        await refreshLessons();
       } else {
         await api.createLesson({ ...form, organization: org.id });
+        setLessonsPage(1);
+        await fetchLessons(1, searchText, filterDiscipline, filterSeverity, filterWorkType);
       }
-      await refreshLessons();
       setForm(emptyForm);
       setEditId(null);
       setShowForm(false);
@@ -200,8 +246,8 @@ function Dashboard({ user, onLogout }) {
     if (deleteConfirmId === id) {
       try {
         await api.deleteLesson(id);
-        setLessons(prev => prev.filter(l => l.id !== id));
         setDeleteConfirmId(null);
+        await refreshLessons();
       } catch (err) { alert(err.message); }
     } else {
       setDeleteConfirmId(id);
@@ -358,19 +404,22 @@ function Dashboard({ user, onLogout }) {
     </div>
   );
 
+  const hasActiveFilters = searchText || filterDiscipline !== "All" || filterSeverity !== "All" || filterWorkType !== "All";
+
   const renderLog = () => (
     <>
       {showForm && renderForm()}
       <input ref={importRef} type="file" accept=".xlsx,.xls,.xlsm,.csv" style={{ display: "none" }}
         onChange={e => { const f = e.target.files?.[0]; if (f) handleImport(f); e.target.value = ""; }} />
-      {!showForm && lessons.length > 0 && (
+      {!showForm && (lessonsCount > 0 || hasActiveFilters) && (
         <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
           <button onClick={() => setShowForm(true)} style={btnPrimary}>+ New Lesson</button>
           <button onClick={() => importRef.current?.click()} style={btnSecondary}>📥 Import XLSX</button>
-          <input value={searchText} onChange={e => setSearchText(e.target.value)} placeholder="Search..." style={{ ...inputStyle, width: 180, padding: "8px 12px" }} />
-          <select value={filterDiscipline} onChange={e => setFilterDiscipline(e.target.value)} style={{ ...selectStyle, width: "auto", padding: "8px 10px" }}><option value="All">All Disciplines</option>{DISCIPLINES.map(d => <option key={d}>{d}</option>)}</select>
-          <select value={filterSeverity} onChange={e => setFilterSeverity(e.target.value)} style={{ ...selectStyle, width: "auto", padding: "8px 10px" }}><option value="All">All Severities</option>{SEVERITIES.map(s => <option key={s}>{s}</option>)}</select>
-          <span style={{ fontSize: 11, color: "#475569", marginLeft: "auto" }}>{filtered.length} of {lessons.length}</span>
+          <input value={searchText} onChange={e => handleSearchChange(e.target.value)} placeholder="Search..." style={{ ...inputStyle, width: 180, padding: "8px 12px" }} />
+          <select value={filterDiscipline} onChange={e => handleDisciplineChange(e.target.value)} style={{ ...selectStyle, width: "auto", padding: "8px 10px" }}><option value="All">All Disciplines</option>{DISCIPLINES.map(d => <option key={d}>{d}</option>)}</select>
+          <select value={filterSeverity} onChange={e => handleSeverityChange(e.target.value)} style={{ ...selectStyle, width: "auto", padding: "8px 10px" }}><option value="All">All Severities</option>{SEVERITIES.map(s => <option key={s}>{s}</option>)}</select>
+          <select value={filterWorkType} onChange={e => handleWorkTypeChange(e.target.value)} style={{ ...selectStyle, width: "auto", padding: "8px 10px" }}><option value="All">All Work Types</option>{WORK_TYPES.map(w => <option key={w}>{w}</option>)}</select>
+          <span style={{ fontSize: 11, color: "#475569", marginLeft: "auto" }}>{lessonsCount} result{lessonsCount !== 1 ? "s" : ""}</span>
         </div>
       )}
       {importResult && !showForm && (
@@ -379,7 +428,10 @@ function Dashboard({ user, onLogout }) {
           <button onClick={() => setImportResult(null)} style={{ background: "none", border: "none", color: "inherit", cursor: "pointer" }}>✕</button>
         </div>
       )}
-      {lessons.length === 0 && !showForm && (
+      {lessonsLoading && !showForm && (
+        <div style={{ textAlign: "center", padding: "40px 20px", color: "#64748b", fontSize: 13 }}>Loading...</div>
+      )}
+      {!lessonsLoading && lessonsCount === 0 && !hasActiveFilters && !showForm && (
         <div style={{ textAlign: "center", padding: "60px 20px" }}>
           <div style={{ fontSize: 40, marginBottom: 12 }}>📋</div>
           <h3 style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 18, fontWeight: 600, color: "#94a3b8", marginBottom: 8 }}>No Lessons Yet</h3>
@@ -390,9 +442,12 @@ function Dashboard({ user, onLogout }) {
           </div>
         </div>
       )}
-      {!showForm && filtered.length > 0 && (
+      {!lessonsLoading && lessonsCount === 0 && hasActiveFilters && !showForm && (
+        <div style={{ textAlign: "center", padding: "40px 20px", color: "#64748b", fontSize: 13 }}>No lessons match the current filters.</div>
+      )}
+      {!lessonsLoading && !showForm && lessons.length > 0 && (
         <div style={{ display: "grid", gap: 10 }}>
-          {filtered.map(l => {
+          {lessons.map(l => {
             const sev = SEVERITY_COLORS[l.severity] || SEVERITY_COLORS.Medium;
             return (
               <div key={l.id} style={{ background: "#111827", border: "1px solid #1e293b", borderRadius: 8, padding: 16 }}>
@@ -426,6 +481,15 @@ function Dashboard({ user, onLogout }) {
               </div>
             );
           })}
+        </div>
+      )}
+      {!lessonsLoading && !showForm && totalPages > 1 && (
+        <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 12, marginTop: 20, paddingTop: 16, borderTop: "1px solid #1e293b" }}>
+          <button onClick={() => handlePageChange(lessonsPage - 1)} disabled={lessonsPage <= 1}
+            style={{ ...btnSecondary, opacity: lessonsPage <= 1 ? 0.4 : 1, cursor: lessonsPage <= 1 ? "default" : "pointer" }}>Previous</button>
+          <span style={{ fontSize: 12, color: "#94a3b8" }}>Page {lessonsPage} of {totalPages}</span>
+          <button onClick={() => handlePageChange(lessonsPage + 1)} disabled={lessonsPage >= totalPages}
+            style={{ ...btnSecondary, opacity: lessonsPage >= totalPages ? 0.4 : 1, cursor: lessonsPage >= totalPages ? "default" : "pointer" }}>Next</button>
         </div>
       )}
     </>
@@ -538,7 +602,7 @@ function Dashboard({ user, onLogout }) {
           </div>
           <div style={{ display: "flex", gap: 28, marginBottom: 22, fontSize: 11, color: "#444", flexWrap: "wrap" }}>
             <div><strong>Date:</strong> {today}</div>
-            <div><strong>Lessons:</strong> {lessons.length}</div>
+            <div><strong>Lessons:</strong> {lessonsCount}</div>
             <div><strong>Applicable:</strong> {sortedMatches.length}</div>
             {sowWorkType && <div><strong>Scope Type:</strong> {sowWorkType}</div>}
             <div><strong>Gaps:</strong> {sowAnalysis.gaps?.length || 0}</div>
@@ -574,7 +638,7 @@ function Dashboard({ user, onLogout }) {
             <h2 style={{ fontSize: 15, fontWeight: 700, color: "#1e3a5f", borderBottom: "1px solid #ddd", paddingBottom: 6, margin: "24px 0 12px" }}>4. Gaps</h2>
             {sowAnalysis.gaps.map((g, i) => <div key={i} style={{ padding: "10px 14px", background: "#fff5f5", borderLeft: "4px solid #e74c3c", borderRadius: 4, marginBottom: 8 }}>{g}</div>)}
           </>)}
-          <div style={{ marginTop: 32, paddingTop: 12, borderTop: "1px solid #ddd", fontSize: 10, color: "#999", textAlign: "center" }}>Lessons Learned SOW Analysis · {today} · {lessons.length} lessons on file</div>
+          <div style={{ marginTop: 32, paddingTop: 12, borderTop: "1px solid #ddd", fontSize: 10, color: "#999", textAlign: "center" }}>Lessons Learned SOW Analysis · {today} · {lessonsCount} lessons on file</div>
         </div>
       </div>
     );
@@ -588,9 +652,9 @@ function Dashboard({ user, onLogout }) {
             <div style={{ width: 56, height: 56, borderRadius: 12, background: "linear-gradient(135deg, #1e3a5f, #2563eb)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px", fontSize: 24 }}>⚡</div>
             <h3 style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 18, fontWeight: 600, color: "#94a3b8", marginBottom: 8 }}>AI Lessons Analyst</h3>
             <p style={{ fontSize: 13, color: "#475569", maxWidth: 480, margin: "0 auto 24px" }}>
-              {lessons.length > 0 ? `${lessons.length} lessons loaded. Ask about patterns, gaps, or draft new lessons.` : "Add lessons first."}
+              {lessonsCount > 0 ? `${lessonsCount} lessons loaded. Ask about patterns, gaps, or draft new lessons.` : "Add lessons first."}
             </p>
-            {lessons.length > 0 && (
+            {lessonsCount > 0 && (
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, maxWidth: 520, margin: "0 auto" }}>
                 {["What are the most common root causes?", "What gaps exist for Arctic work?", "Draft a lesson about preheat failures", "Which lessons apply to a new mainline spread?"]
                   .map((p, i) => <button key={i} onClick={() => sendChat(p)} style={{ padding: "12px 14px", borderRadius: 6, border: "1px solid #1e293b", background: "#111827", color: "#94a3b8", fontSize: 12, fontFamily: "inherit", cursor: "pointer", textAlign: "left" }}>{p}</button>)}
@@ -634,8 +698,8 @@ function Dashboard({ user, onLogout }) {
       <div style={{ marginBottom: 24, borderBottom: "1px solid #1e293b", paddingBottom: 18 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <div style={{ width: 8, height: 8, borderRadius: "50%", background: lessons.length > 0 ? "#34d399" : "#64748b", boxShadow: lessons.length > 0 ? "0 0 8px #34d399" : "none" }} />
-            <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: 3, color: "#64748b", textTransform: "uppercase" }}>{lessons.length} Lessons</span>
+            <div style={{ width: 8, height: 8, borderRadius: "50%", background: lessonsCount > 0 ? "#34d399" : "#64748b", boxShadow: lessonsCount > 0 ? "0 0 8px #34d399" : "none" }} />
+            <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: 3, color: "#64748b", textTransform: "uppercase" }}>{lessonsCount} Lessons</span>
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             <button onClick={() => setShowOrgProfile(!showOrgProfile)} style={{ background: showOrgProfile ? "#1e293b" : "none", border: `1px solid ${org?.profile_text ? "#2563eb" : "#334155"}`, borderRadius: 6, padding: "5px 12px", cursor: "pointer", fontSize: 11, fontFamily: "inherit", color: org?.profile_text ? "#60a5fa" : "#64748b" }}>
