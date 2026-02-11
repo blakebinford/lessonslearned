@@ -123,49 +123,51 @@ class SOWAnalysisViewSet(viewsets.ReadOnlyModelViewSet):
 @api_view(["POST"])
 def analyze_sow(request):
     """Run AI analysis on a scope of work against the lessons database."""
-    serializer = SOWAnalyzeRequestSerializer(data=request.data)
-    serializer.is_valid(raise_exception=True)
+    try:
+        print(">>> STEP 1: entered view")
+        org_id = request.data.get("organization")
+        sow_text = request.data.get("sow_text", "")
+        work_type = request.data.get("work_type", "")
+        filename = request.data.get("filename", "")
+        print(f">>> STEP 2: org={org_id}, text_len={len(sow_text)}, wt={work_type}")
 
-    org_id = request.data.get("organization")
-    if not org_id:
-        return Response({"error": "organization is required"}, status=400)
-    org = get_object_or_404(Organization, id=org_id, created_by=request.user)
+        if not org_id:
+            return Response({"error": "organization is required"}, status=400)
+        if not sow_text:
+            return Response({"error": "sow_text is required"}, status=400)
 
-    sow_text = serializer.validated_data["sow_text"]
-    work_type = serializer.validated_data.get("work_type", "")
-    filename = serializer.validated_data.get("filename", "")
+        org = get_object_or_404(Organization, id=org_id, created_by=request.user)
+        print(f">>> STEP 3: org found = {org.name}")
 
-    # Get all lessons for this org
-    lessons = list(
-        Lesson.objects.filter(organization=org).values(
+        lessons_qs = Lesson.objects.filter(organization=org).values(
             "id", "title", "description", "root_cause", "recommendation",
             "impact", "work_type", "phase", "discipline", "severity",
             "environment", "project", "location", "keywords",
         )
-    )
+        lessons_list = list(lessons_qs)
+        print(f">>> STEP 4: {len(lessons_list)} lessons loaded")
 
-    org_profile = {"name": org.name, "profile_text": org.profile_text}
+        org_profile = {"name": org.name, "profile_text": org.profile_text}
+        print(">>> STEP 5: calling AI")
 
-    try:
-        results = ai.analyze_sow(sow_text, work_type, lessons, org_profile)
+        results = ai.analyze_sow(sow_text, work_type, lessons_list, org_profile)
+        print(f">>> STEP 6: AI returned, keys={list(results.keys()) if isinstance(results, dict) else 'not a dict'}")
+
+        analysis = SOWAnalysis.objects.create(
+            organization=org,
+            filename=filename,
+            sow_text=sow_text[:10000],
+            work_type=work_type,
+            results=results,
+            created_by=request.user,
+        )
+        print(f">>> STEP 7: saved analysis id={analysis.id}")
+
+        return Response({"id": analysis.id, "results": results})
     except Exception as e:
-        logger.exception("SOW analysis failed")
+        import traceback
+        traceback.print_exc()
         return Response({"error": str(e)}, status=500)
-
-    # Save analysis
-    analysis = SOWAnalysis.objects.create(
-        organization=org,
-        filename=filename,
-        sow_text=sow_text[:10000],
-        work_type=work_type,
-        results=results,
-        created_by=request.user,
-    )
-
-    return Response({
-        "id": analysis.id,
-        "results": results,
-    })
 
 
 @api_view(["POST"])

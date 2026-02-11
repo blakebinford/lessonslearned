@@ -39,7 +39,7 @@ class SOWAnalysisSerializer(serializers.ModelSerializer):
 
 
 class SOWAnalyzeRequestSerializer(serializers.Serializer):
-    sow_text = serializers.CharField(max_length=50000)
+    sow_text = serializers.CharField(max_length=500000, required=False, default="")
     work_type = serializers.CharField(max_length=100, required=False, default="")
     filename = serializers.CharField(max_length=255, required=False, default="")
 
@@ -49,7 +49,7 @@ class SOWFileUploadSerializer(serializers.Serializer):
 
 
 class ChatMessageSerializer(serializers.Serializer):
-    message = serializers.CharField(max_length=5000)
+    message = serializers.CharField(max_length=5000, required=False, default="")
     history = serializers.ListField(
         child=serializers.DictField(), required=False, default=list
     )

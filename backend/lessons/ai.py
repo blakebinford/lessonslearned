@@ -35,7 +35,10 @@ def _call_anthropic(system_prompt, user_message, max_tokens=4000, messages=None)
 
     with httpx.Client(timeout=120) as client:
         resp = client.post(ANTHROPIC_URL, json=payload, headers=headers)
-        resp.raise_for_status()
+        if not resp.is_success:
+            error_body = resp.text
+            logger.error(f"Anthropic API error {resp.status_code}: {error_body[:500]}")
+            raise ValueError(f"Anthropic API error {resp.status_code}: {error_body[:300]}")
         data = resp.json()
 
     text_parts = [
@@ -85,9 +88,9 @@ def analyze_sow(sow_text, work_type, lessons, org_profile):
         {
             "id": l["id"],
             "title": l["title"],
-            "description": l["description"],
-            "rootCause": l.get("root_cause", ""),
-            "recommendation": l.get("recommendation", ""),
+            "description": l["description"][:300],
+            "rootCause": l.get("root_cause", "")[:200],
+            "recommendation": l.get("recommendation", "")[:200],
             "workType": l.get("work_type", ""),
             "phase": l.get("phase", ""),
             "discipline": l.get("discipline", ""),
@@ -95,10 +98,13 @@ def analyze_sow(sow_text, work_type, lessons, org_profile):
             "environment": l.get("environment", ""),
             "project": l.get("project", ""),
             "location": l.get("location", ""),
-            "keywords": l.get("keywords", ""),
+            "keywords": l.get("keywords", "")[:100],
         }
         for l in lessons
     ]
+
+    # Truncate SOW to fit context window
+    sow_text = sow_text[:8000]
 
     org_context = ""
     if org_profile.get("profile_text"):
