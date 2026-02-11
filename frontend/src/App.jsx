@@ -1,85 +1,13 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import * as api from "./api";
-import {
-  WORK_TYPES, PHASES, DISCIPLINES, SEVERITIES, ENVIRONMENTS, SOW_WORK_TYPES,
-  SEVERITY_COLORS, badge, inputStyle, selectStyle, btnPrimary, btnSecondary,
-  labelStyle, globalCSS,
-} from "./styles";
+import { globalCSS } from "./styles";
+import AuthScreen from "./components/AuthScreen";
+import Header from "./components/Header";
+import LessonsLog from "./components/LessonsLog";
+import SOWAnalysis from "./components/SOWAnalysis";
+import ChatAnalyst from "./components/ChatAnalyst";
 
-/* ════════════════════════════════
-   AUTH SCREEN
-   ════════════════════════════════ */
-function AuthScreen({ onAuth }) {
-  const [mode, setMode] = useState("login");
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const [email, setEmail] = useState("");
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setError("");
-    setLoading(true);
-    try {
-      const data = mode === "login"
-        ? await api.login(username, password)
-        : await api.register(username, password, email);
-      localStorage.setItem("ll_token", data.token);
-      localStorage.setItem("ll_user", data.username);
-      onAuth(data);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh", padding: 20 }}>
-      <div style={{ width: 380, background: "#111827", border: "1px solid #1e293b", borderRadius: 12, padding: 32 }}>
-        <h1 style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 22, fontWeight: 700, color: "#e2e8f0", marginBottom: 4, textAlign: "center" }}>
-          Lessons Learned
-        </h1>
-        <p style={{ fontSize: 12, color: "#64748b", textAlign: "center", marginBottom: 24 }}>
-          {mode === "login" ? "Sign in to continue" : "Create your account"}
-        </p>
-        <form onSubmit={handleSubmit} style={{ display: "grid", gap: 14 }}>
-          <div>
-            <span style={labelStyle}>Username</span>
-            <input value={username} onChange={e => setUsername(e.target.value)} style={inputStyle} required />
-          </div>
-          {mode === "register" && (
-            <div>
-              <span style={labelStyle}>Email</span>
-              <input type="email" value={email} onChange={e => setEmail(e.target.value)} style={inputStyle} />
-            </div>
-          )}
-          <div>
-            <span style={labelStyle}>Password</span>
-            <input type="password" value={password} onChange={e => setPassword(e.target.value)} style={inputStyle} required />
-          </div>
-          {error && <div style={{ fontSize: 12, color: "#f87171", padding: "8px 10px", background: "#2d0a0a", borderRadius: 4 }}>{error}</div>}
-          <button type="submit" disabled={loading} style={{ ...btnPrimary, width: "100%", opacity: loading ? 0.6 : 1 }}>
-            {loading ? "..." : mode === "login" ? "Sign In" : "Create Account"}
-          </button>
-        </form>
-        <div style={{ textAlign: "center", marginTop: 16 }}>
-          <button onClick={() => { setMode(mode === "login" ? "register" : "login"); setError(""); }}
-            style={{ background: "none", border: "none", color: "#60a5fa", fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>
-            {mode === "login" ? "Need an account? Register" : "Have an account? Sign in"}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* ════════════════════════════════
-   MAIN DASHBOARD
-   ════════════════════════════════ */
 function Dashboard({ user, onLogout }) {
-  // Core state
   const [org, setOrg] = useState(null);
   const [lessons, setLessons] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -112,26 +40,7 @@ function Dashboard({ user, onLogout }) {
 
   // Org profile
   const [showOrgProfile, setShowOrgProfile] = useState(false);
-  const [orgForm, setOrgForm] = useState({ name: "", profile_text: "" });
-  const [orgSaved, setOrgSaved] = useState(false);
 
-  // SOW
-  const [sowText, setSowText] = useState("");
-  const [sowFilename, setSowFilename] = useState("");
-  const [sowWorkType, setSowWorkType] = useState("");
-  const [sowAnalysis, setSowAnalysis] = useState(null);
-  const [analyzing, setAnalyzing] = useState(false);
-  const [showReport, setShowReport] = useState(false);
-  const sowFileRef = useRef(null);
-  const orgFileRef = useRef(null);
-
-  // Chat
-  const [messages, setMessages] = useState([]);
-  const [chatInput, setChatInput] = useState("");
-  const [chatLoading, setChatLoading] = useState(false);
-  const chatEndRef = useRef(null);
-
-  // Load org + lessons
   useEffect(() => {
     (async () => {
       try {
@@ -140,7 +49,6 @@ function Dashboard({ user, onLogout }) {
         if (results.length > 0) {
           const o = results[0];
           setOrg(o);
-          setOrgForm({ name: o.name, profile_text: o.profile_text || "" });
           const lessonData = await api.getLessons(o.id);
           setLessons(lessonData.results || []);
           setLessonsCount(lessonData.count || 0);
@@ -727,9 +635,6 @@ function Dashboard({ user, onLogout }) {
   );
 }
 
-/* ════════════════════════════════
-   APP ROOT
-   ════════════════════════════════ */
 export default function App() {
   const [user, setUser] = useState(null);
 
