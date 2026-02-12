@@ -158,14 +158,96 @@ def generate_deliverable(deliverable_type, context, params=None):
 
 
 def _generate_risk_register(context, params):
-    """Stub: Generate project risk register from applicable lessons."""
-    return {
-        "title": "Risk Register",
-        "status": "stub",
-        "message": "Risk register generation not yet implemented. "
-        "Will produce a structured risk register from the "
-        f"{len(context['matches'])} applicable lessons.",
-    }
+    """Generate project risk register from applicable lessons and identified gaps."""
+    sow_text = context["sow_text"][:6000]
+    matches = context["matches"]
+    gaps = context["gaps"]
+    org_profile = context.get("org_profile", {})
+
+    # Build matched lessons detail block
+    lessons_detail = []
+    for m in matches:
+        entry = {
+            "lessonId": m.get("lessonId"),
+            "relevance": m.get("relevance", ""),
+            "reason": m.get("reason", ""),
+        }
+        if m.get("lesson"):
+            entry["lesson"] = m["lesson"]
+        lessons_detail.append(entry)
+
+    org_context = ""
+    if org_profile.get("profile_text"):
+        org_context = (
+            f"\nORGANIZATION CONTEXT — EXISTING PROGRAMS:\n"
+            f"Organization: {org_profile.get('name', '')}\n"
+            f"The following programs and systems are ALREADY IN PLACE. "
+            f"Reference these in mitigations where applicable instead of "
+            f"recommending new programs:\n"
+            f"{org_profile['profile_text'][:4000]}\n"
+        )
+
+    system_prompt = (
+        "You are a senior quality risk management specialist for pipeline and "
+        "energy construction. Generate a project-specific quality risk register "
+        "based on historical lessons learned and identified gaps from a scope of "
+        "work analysis."
+    )
+
+    user_msg = f"""Based on the following scope of work, matched lessons learned, and identified gaps, generate a project-specific quality risk register.
+
+SCOPE OF WORK:
+{sow_text}
+
+MATCHED LESSONS LEARNED ({len(lessons_detail)} lessons):
+{json.dumps(lessons_detail, indent=1)}
+
+IDENTIFIED GAPS (risk areas with no historical lessons):
+{json.dumps(gaps, indent=1)}
+{org_context}
+INSTRUCTIONS:
+- Derive risks from BOTH the matched lessons (historical evidence) AND the identified gaps (unknown risks).
+- For risks derived from lessons, include the specific lesson IDs in source_lessons.
+- For risks derived from gaps where no historical data exists, set source_lessons to ["No historical data — gap-based risk"].
+- Assign likelihood based on how frequently similar issues appear in the lessons database.
+- Consequence should reflect schedule, cost, and safety/regulatory impact.
+- Risk level matrix: Critical = High likelihood + High consequence, High = High/Med or Med/High, Medium = Med/Med or Low/High or High/Low, Low = Low/Low or Low/Med or Med/Low.
+- Mitigations should reference the organization's existing programs where applicable (per org context above).
+- Suggest a responsible role for each risk (e.g. "Project Quality Manager", "Lead Welding Inspector", "NDE Level III"), not a person name.
+- Generate 8-15 risks — enough to be useful but not padded with obvious filler.
+- Number risks QR-001 through QR-XXX.
+
+Respond ONLY in valid JSON with this exact structure:
+{{
+  "risks": [
+    {{
+      "id": "QR-001",
+      "category": "e.g. Welding Quality",
+      "description": "Specific risk description referencing scope conditions",
+      "likelihood": "High" or "Medium" or "Low",
+      "consequence": "High" or "Medium" or "Low",
+      "risk_level": "Critical" or "High" or "Medium" or "Low",
+      "source_lessons": ["list of lesson IDs or gap-based note"],
+      "mitigation": "Specific mitigation action",
+      "residual_risk": "Low" or "Medium",
+      "owner": "Suggested responsible role"
+    }}
+  ],
+  "summary": "2-3 sentence overview of the risk profile for this scope"
+}}"""
+
+    text = _call_anthropic(system_prompt, user_msg, max_tokens=4000)
+    result = _parse_json_response(text)
+
+    if "error" in result:
+        return {
+            "title": "Risk Register",
+            "status": "error",
+            "message": result["error"],
+        }
+
+    result["title"] = "Risk Register"
+    return result
 
 
 def _generate_staffing_estimate(context, params):

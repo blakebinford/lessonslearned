@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, Fragment } from "react";
 import * as api from "../api";
 import { useToast } from "./Toast";
 import LessonModal from "./LessonModal";
@@ -61,6 +61,123 @@ export default function SOWAnalysis({ org, lessons, lessonsCount, onLessonsChang
     navigator.clipboard.writeText(text).then(
       () => showToast("Copied to clipboard", "success"),
       () => showToast("Failed to copy", "error")
+    );
+  };
+
+  const handleCopyRiskRegisterTable = (content) => {
+    if (!content?.risks) return;
+    const header = ["ID", "Category", "Risk Description", "L", "C", "Risk Level", "Mitigation", "Owner"].join("\t");
+    const rows = content.risks.map(r =>
+      [r.id, r.category, r.description, r.likelihood, r.consequence, r.risk_level, r.mitigation, r.owner].join("\t")
+    );
+    const tsv = [header, ...rows].join("\n");
+    navigator.clipboard.writeText(tsv).then(
+      () => showToast("Copied as table — paste into Excel or Word", "success"),
+      () => showToast("Failed to copy", "error")
+    );
+  };
+
+  // Track expanded risk rows
+  const [expandedRisks, setExpandedRisks] = useState({});
+  const toggleRiskExpand = (riskId) => {
+    setExpandedRisks(prev => ({ ...prev, [riskId]: !prev[riskId] }));
+  };
+
+  const RISK_LEVEL_COLORS = {
+    Critical: SEVERITY_COLORS.Critical,
+    High: SEVERITY_COLORS.High,
+    Medium: SEVERITY_COLORS.Medium,
+    Low: SEVERITY_COLORS.Low,
+  };
+
+  const renderRiskRegister = (content) => {
+    if (!content?.risks) return null;
+    return (
+      <div style={{ fontSize: 12 }}>
+        {content.summary && (
+          <p style={{ color: "#cbd5e1", lineHeight: 1.6, margin: "0 0 14px", padding: "10px 12px", background: "#111827", borderRadius: 6, borderLeft: "3px solid #a78bfa" }}>
+            {content.summary}
+          </p>
+        )}
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10 }}>
+          <button
+            onClick={() => handleCopyRiskRegisterTable(content)}
+            style={{ background: "none", border: "1px solid #334155", borderRadius: 4, padding: "5px 12px", cursor: "pointer", fontSize: 11, color: "#94a3b8" }}
+          >
+            {"\uD83D\uDCCB"} Copy as Table
+          </button>
+        </div>
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+            <thead>
+              <tr>
+                {["ID", "Category", "Risk Description", "L", "C", "Risk Level", "Mitigation", "Owner"].map(h => (
+                  <th key={h} style={{ background: "#1e293b", color: "#e2e8f0", padding: "8px 10px", textAlign: "left", fontSize: 10, fontWeight: 600, whiteSpace: "nowrap", borderBottom: "2px solid #334155" }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {content.risks.map((risk, i) => {
+                const rlc = RISK_LEVEL_COLORS[risk.risk_level] || RISK_LEVEL_COLORS.Medium;
+                const isExpanded = expandedRisks[risk.id];
+                return (
+                  <Fragment key={risk.id || i}>
+                    <tr
+                      onClick={() => toggleRiskExpand(risk.id)}
+                      style={{ background: i % 2 === 0 ? "#0a0e17" : "#0f1629", cursor: "pointer", transition: "background 0.15s" }}
+                      onMouseEnter={e => { e.currentTarget.style.background = "#1a2332"; }}
+                      onMouseLeave={e => { e.currentTarget.style.background = i % 2 === 0 ? "#0a0e17" : "#0f1629"; }}
+                    >
+                      <td style={{ padding: "8px 10px", borderBottom: "1px solid #1e293b", color: "#94a3b8", fontWeight: 600, whiteSpace: "nowrap" }}>{risk.id}</td>
+                      <td style={{ padding: "8px 10px", borderBottom: "1px solid #1e293b", color: "#e2e8f0", whiteSpace: "nowrap" }}>{risk.category}</td>
+                      <td style={{ padding: "8px 10px", borderBottom: "1px solid #1e293b", color: "#cbd5e1", maxWidth: 300 }}>{risk.description}</td>
+                      <td style={{ padding: "8px 10px", borderBottom: "1px solid #1e293b", color: "#cbd5e1", textAlign: "center" }}>{risk.likelihood?.[0]}</td>
+                      <td style={{ padding: "8px 10px", borderBottom: "1px solid #1e293b", color: "#cbd5e1", textAlign: "center" }}>{risk.consequence?.[0]}</td>
+                      <td style={{ padding: "8px 10px", borderBottom: "1px solid #1e293b", textAlign: "center" }}>
+                        <span style={{ ...badge(rlc), fontSize: 10 }}>{risk.risk_level}</span>
+                      </td>
+                      <td style={{ padding: "8px 10px", borderBottom: "1px solid #1e293b", color: "#cbd5e1", maxWidth: 260 }}>{risk.mitigation}</td>
+                      <td style={{ padding: "8px 10px", borderBottom: "1px solid #1e293b", color: "#94a3b8", whiteSpace: "nowrap" }}>{risk.owner}</td>
+                    </tr>
+                    {isExpanded && (
+                      <tr style={{ background: "#111827" }}>
+                        <td colSpan={8} style={{ padding: "10px 16px", borderBottom: "1px solid #1e293b" }}>
+                          <div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
+                            <div>
+                              <span style={{ fontSize: 10, fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: 1 }}>Source Lessons</span>
+                              <div style={{ marginTop: 4, display: "flex", flexWrap: "wrap", gap: 6 }}>
+                                {(risk.source_lessons || []).map((src, si) => {
+                                  const lessonId = typeof src === "number" ? src : parseInt(src, 10);
+                                  const lesson = !isNaN(lessonId) ? lessons.find(l => l.id === lessonId) : null;
+                                  return lesson ? (
+                                    <span
+                                      key={si}
+                                      onClick={(e) => { e.stopPropagation(); setModalLesson(lesson); }}
+                                      style={{ fontSize: 11, color: "#60a5fa", cursor: "pointer", textDecoration: "underline", textUnderlineOffset: 2 }}
+                                    >
+                                      {lesson.title}
+                                    </span>
+                                  ) : (
+                                    <span key={si} style={{ fontSize: 11, color: "#94a3b8", fontStyle: "italic" }}>{String(src)}</span>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                            <div>
+                              <span style={{ fontSize: 10, fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: 1 }}>Residual Risk</span>
+                              <div style={{ marginTop: 4, fontSize: 11, color: risk.residual_risk === "Medium" ? "#fb923c" : "#34d399" }}>{risk.residual_risk || "—"}</div>
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
     );
   };
 
@@ -442,6 +559,13 @@ export default function SOWAnalysis({ org, lessons, lessonsCount, onLessonsChang
                             <span style={{ fontWeight: 600, color: "#a78bfa" }}>{content.title}</span>
                             <p style={{ margin: "6px 0 0" }}>{content.message}</p>
                           </div>
+                        ) : content.status === "error" ? (
+                          <div style={{ fontSize: 12, color: "#f87171", lineHeight: 1.6 }}>
+                            <span style={{ fontWeight: 600 }}>{content.title || "Error"}</span>
+                            <p style={{ margin: "6px 0 0" }}>{content.message}</p>
+                          </div>
+                        ) : card.type === "risk_register" && content.risks ? (
+                          renderRiskRegister(content)
                         ) : (
                           <pre style={{ fontSize: 12, color: "#cbd5e1", margin: 0, whiteSpace: "pre-wrap", lineHeight: 1.6 }}>
                             {typeof content === "string" ? content : JSON.stringify(content, null, 2)}
