@@ -90,6 +90,7 @@ export default function SOWAnalysis({ org, lessons, lessonsCount, onLessonsChang
       duration_months: staffingParams.duration_months ? Number(staffingParams.duration_months) : null,
       special_conditions: staffingParams.special_conditions,
     };
+    console.log(">>> STAFFING REQUEST PAYLOAD:", { analysis_id: activeHistoryId, deliverable_type: "staffing_estimate", params });
     handleGenerateDeliverable("staffing_estimate", params);
   };
 
