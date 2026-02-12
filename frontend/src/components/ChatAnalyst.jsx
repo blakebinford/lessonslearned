@@ -1,8 +1,10 @@
 import { useState, useRef, useEffect } from "react";
 import * as api from "../api";
+import { useToast } from "./Toast";
 import { inputStyle, btnPrimary } from "../styles";
 
 export default function ChatAnalyst({ org, lessonsCount }) {
+  const { showToast } = useToast();
   const [messages, setMessages] = useState([]);
   const [chatInput, setChatInput] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
@@ -22,6 +24,7 @@ export default function ChatAnalyst({ org, lessonsCount }) {
       setMessages([...newMessages, { role: "assistant", content: data.response }]);
     } catch {
       setMessages([...newMessages, { role: "assistant", content: "Error connecting. Please try again." }]);
+      showToast("Failed to reach the AI analyst", "error");
     } finally {
       setChatLoading(false);
     }

@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import * as api from "./api";
 import { globalCSS } from "./styles";
+import { ToastProvider, useToast } from "./components/Toast";
 import AuthScreen from "./components/AuthScreen";
 import Header from "./components/Header";
 import LessonsLog from "./components/LessonsLog";
@@ -8,6 +9,7 @@ import SOWAnalysis from "./components/SOWAnalysis";
 import ChatAnalyst from "./components/ChatAnalyst";
 
 function Dashboard({ user, onLogout }) {
+  const { showToast } = useToast();
   const [org, setOrg] = useState(null);
   const [lessons, setLessons] = useState([]);
   const [lessonsCount, setLessonsCount] = useState(0);
@@ -29,6 +31,7 @@ function Dashboard({ user, onLogout }) {
         }
       } catch (err) {
         console.error("Load failed:", err);
+        showToast("Failed to load data: " + err.message, "error");
       } finally {
         setLoading(false);
       }
@@ -65,6 +68,29 @@ function Dashboard({ user, onLogout }) {
   );
 }
 
+const toastAnimCSS = `
+  @keyframes toastSlideIn {
+    from { transform: translateX(120%); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+  }
+  @keyframes toastSlideOut {
+    from { transform: translateX(0); opacity: 1; }
+    to { transform: translateX(120%); opacity: 0; }
+  }
+`;
+
+function SessionExpiryWatcher() {
+  const { showToast } = useToast();
+  useEffect(() => {
+    const expired = localStorage.getItem("ll_session_expired");
+    if (expired) {
+      localStorage.removeItem("ll_session_expired");
+      showToast("Session expired. Please sign in again.", "error");
+    }
+  }, []);
+  return null;
+}
+
 export default function App() {
   const [user, setUser] = useState(null);
 
@@ -82,9 +108,10 @@ export default function App() {
   };
 
   return (
-    <>
-      <style>{globalCSS}</style>
+    <ToastProvider>
+      <style>{globalCSS + toastAnimCSS}</style>
+      <SessionExpiryWatcher />
       {user ? <Dashboard user={user} onLogout={handleLogout} /> : <AuthScreen onAuth={handleAuth} />}
-    </>
+    </ToastProvider>
   );
 }
