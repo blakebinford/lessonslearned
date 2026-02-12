@@ -1,12 +1,12 @@
 import OrgProfile from "./OrgProfile";
 
-export default function Header({ lessons, org, setOrg, showOrgProfile, setShowOrgProfile, user, onLogout, activeTab, setActiveTab }) {
+export default function Header({ lessonsCount, org, setOrg, showOrgProfile, setShowOrgProfile, user, onLogout, activeTab, setActiveTab }) {
   return (
     <div style={{ marginBottom: 24, borderBottom: "1px solid #1e293b", paddingBottom: 18 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <div style={{ width: 8, height: 8, borderRadius: "50%", background: lessons.length > 0 ? "#34d399" : "#64748b", boxShadow: lessons.length > 0 ? "0 0 8px #34d399" : "none" }} />
-          <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: 3, color: "#64748b", textTransform: "uppercase" }}>{lessons.length} Lessons</span>
+          <div style={{ width: 8, height: 8, borderRadius: "50%", background: lessonsCount > 0 ? "#34d399" : "#64748b", boxShadow: lessonsCount > 0 ? "0 0 8px #34d399" : "none" }} />
+          <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: 3, color: "#64748b", textTransform: "uppercase" }}>{lessonsCount} Lessons</span>
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <button onClick={() => setShowOrgProfile(!showOrgProfile)} style={{ background: showOrgProfile ? "#1e293b" : "none", border: `1px solid ${org?.profile_text ? "#2563eb" : "#334155"}`, borderRadius: 6, padding: "5px 12px", cursor: "pointer", fontSize: 11, fontFamily: "inherit", color: org?.profile_text ? "#60a5fa" : "#64748b" }}>

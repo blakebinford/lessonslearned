@@ -1,4 +1,4 @@
-import { useState, useRef, useMemo } from "react";
+import { useState, useRef, useCallback } from "react";
 import * as api from "../api";
 import {
   WORK_TYPES, PHASES, DISCIPLINES, SEVERITIES, ENVIRONMENTS,
@@ -7,7 +7,7 @@ import {
 
 const emptyForm = { title: "", description: "", root_cause: "", recommendation: "", impact: "", work_type: "", phase: "", discipline: "", severity: "Medium", environment: "", project: "", location: "", keywords: "" };
 
-export default function LessonsLog({ org, lessons, refreshLessons, setLessons }) {
+export default function LessonsLog({ org, lessons, lessonsCount, setLessons, setLessonsCount }) {
   const [showForm, setShowForm] = useState(false);
   const [editId, setEditId] = useState(null);
   const [form, setForm] = useState(emptyForm);
@@ -17,23 +17,71 @@ export default function LessonsLog({ org, lessons, refreshLessons, setLessons })
   const [filterSeverity, setFilterSeverity] = useState("All");
   const [filterWorkType, setFilterWorkType] = useState("All");
 
+  const [lessonsPage, setLessonsPage] = useState(1);
+  const [lessonsLoading, setLessonsLoading] = useState(false);
+  const searchTimerRef = useRef(null);
+
   const importRef = useRef(null);
   const [importResult, setImportResult] = useState(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState(null);
 
-  const filtered = useMemo(() => {
-    return lessons.filter(l => {
-      if (filterDiscipline !== "All" && l.discipline !== filterDiscipline) return false;
-      if (filterSeverity !== "All" && l.severity !== filterSeverity) return false;
-      if (filterWorkType !== "All" && l.work_type !== filterWorkType) return false;
-      if (searchText) {
-        const q = searchText.toLowerCase();
-        const s = [l.title, l.description, l.root_cause, l.recommendation, l.keywords, l.project, l.location].join(" ").toLowerCase();
-        if (!s.includes(q)) return false;
-      }
-      return true;
-    });
-  }, [lessons, filterDiscipline, filterSeverity, filterWorkType, searchText]);
+  const fetchLessons = useCallback(async (page, search, discipline, severity, workType) => {
+    if (!org) return;
+    setLessonsLoading(true);
+    try {
+      const params = { page };
+      if (search) params.search = search;
+      if (discipline && discipline !== "All") params.discipline = discipline;
+      if (severity && severity !== "All") params.severity = severity;
+      if (workType && workType !== "All") params.work_type = workType;
+      const data = await api.getLessons(org.id, params);
+      setLessons(data.results || []);
+      setLessonsCount(data.count || 0);
+    } catch (err) {
+      console.error("Failed to fetch lessons:", err);
+    } finally {
+      setLessonsLoading(false);
+    }
+  }, [org, setLessons, setLessonsCount]);
+
+  const refreshLessons = useCallback(() => {
+    return fetchLessons(lessonsPage, searchText, filterDiscipline, filterSeverity, filterWorkType);
+  }, [fetchLessons, lessonsPage, searchText, filterDiscipline, filterSeverity, filterWorkType]);
+
+  const totalPages = Math.ceil(lessonsCount / 50) || 1;
+
+  const handleSearchChange = (val) => {
+    setSearchText(val);
+    clearTimeout(searchTimerRef.current);
+    searchTimerRef.current = setTimeout(() => {
+      setLessonsPage(1);
+      fetchLessons(1, val, filterDiscipline, filterSeverity, filterWorkType);
+    }, 300);
+  };
+
+  const handleDisciplineChange = (val) => {
+    setFilterDiscipline(val);
+    setLessonsPage(1);
+    fetchLessons(1, searchText, val, filterSeverity, filterWorkType);
+  };
+
+  const handleSeverityChange = (val) => {
+    setFilterSeverity(val);
+    setLessonsPage(1);
+    fetchLessons(1, searchText, filterDiscipline, val, filterWorkType);
+  };
+
+  const handleWorkTypeChange = (val) => {
+    setFilterWorkType(val);
+    setLessonsPage(1);
+    fetchLessons(1, searchText, filterDiscipline, filterSeverity, val);
+  };
+
+  const handlePageChange = (newPage) => {
+    if (newPage < 1 || newPage > totalPages) return;
+    setLessonsPage(newPage);
+    fetchLessons(newPage, searchText, filterDiscipline, filterSeverity, filterWorkType);
+  };
 
   const setField = (k, v) => setForm(prev => ({ ...prev, [k]: v }));
 
@@ -42,10 +90,12 @@ export default function LessonsLog({ org, lessons, refreshLessons, setLessons })
     try {
       if (editId) {
         await api.updateLesson(editId, form);
+        await refreshLessons();
       } else {
         await api.createLesson({ ...form, organization: org.id });
+        setLessonsPage(1);
+        await fetchLessons(1, searchText, filterDiscipline, filterSeverity, filterWorkType);
       }
-      await refreshLessons();
       setForm(emptyForm);
       setEditId(null);
       setShowForm(false);
@@ -64,8 +114,8 @@ export default function LessonsLog({ org, lessons, refreshLessons, setLessons })
     if (deleteConfirmId === id) {
       try {
         await api.deleteLesson(id);
-        setLessons(prev => prev.filter(l => l.id !== id));
         setDeleteConfirmId(null);
+        await refreshLessons();
       } catch (err) { alert(err.message); }
     } else {
       setDeleteConfirmId(id);
@@ -84,6 +134,8 @@ export default function LessonsLog({ org, lessons, refreshLessons, setLessons })
       setImportResult({ error: err.message });
     }
   };
+
+  const hasActiveFilters = searchText || filterDiscipline !== "All" || filterSeverity !== "All" || filterWorkType !== "All";
 
   const renderForm = () => (
     <div style={{ background: "#111827", border: "1px solid #1e293b", borderRadius: 8, padding: 24, marginBottom: 20 }}>
@@ -125,14 +177,15 @@ export default function LessonsLog({ org, lessons, refreshLessons, setLessons })
       {showForm && renderForm()}
       <input ref={importRef} type="file" accept=".xlsx,.xls,.xlsm,.csv" style={{ display: "none" }}
         onChange={e => { const f = e.target.files?.[0]; if (f) handleImport(f); e.target.value = ""; }} />
-      {!showForm && lessons.length > 0 && (
+      {!showForm && (lessonsCount > 0 || hasActiveFilters) && (
         <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
           <button onClick={() => setShowForm(true)} style={btnPrimary}>+ New Lesson</button>
           <button onClick={() => importRef.current?.click()} style={btnSecondary}>📥 Import XLSX</button>
-          <input value={searchText} onChange={e => setSearchText(e.target.value)} placeholder="Search..." style={{ ...inputStyle, width: 180, padding: "8px 12px" }} />
-          <select value={filterDiscipline} onChange={e => setFilterDiscipline(e.target.value)} style={{ ...selectStyle, width: "auto", padding: "8px 10px" }}><option value="All">All Disciplines</option>{DISCIPLINES.map(d => <option key={d}>{d}</option>)}</select>
-          <select value={filterSeverity} onChange={e => setFilterSeverity(e.target.value)} style={{ ...selectStyle, width: "auto", padding: "8px 10px" }}><option value="All">All Severities</option>{SEVERITIES.map(s => <option key={s}>{s}</option>)}</select>
-          <span style={{ fontSize: 11, color: "#475569", marginLeft: "auto" }}>{filtered.length} of {lessons.length}</span>
+          <input value={searchText} onChange={e => handleSearchChange(e.target.value)} placeholder="Search..." style={{ ...inputStyle, width: 180, padding: "8px 12px" }} />
+          <select value={filterDiscipline} onChange={e => handleDisciplineChange(e.target.value)} style={{ ...selectStyle, width: "auto", padding: "8px 10px" }}><option value="All">All Disciplines</option>{DISCIPLINES.map(d => <option key={d}>{d}</option>)}</select>
+          <select value={filterSeverity} onChange={e => handleSeverityChange(e.target.value)} style={{ ...selectStyle, width: "auto", padding: "8px 10px" }}><option value="All">All Severities</option>{SEVERITIES.map(s => <option key={s}>{s}</option>)}</select>
+          <select value={filterWorkType} onChange={e => handleWorkTypeChange(e.target.value)} style={{ ...selectStyle, width: "auto", padding: "8px 10px" }}><option value="All">All Work Types</option>{WORK_TYPES.map(w => <option key={w}>{w}</option>)}</select>
+          <span style={{ fontSize: 11, color: "#475569", marginLeft: "auto" }}>{lessonsCount} result{lessonsCount !== 1 ? "s" : ""}</span>
         </div>
       )}
       {importResult && !showForm && (
@@ -141,7 +194,10 @@ export default function LessonsLog({ org, lessons, refreshLessons, setLessons })
           <button onClick={() => setImportResult(null)} style={{ background: "none", border: "none", color: "inherit", cursor: "pointer" }}>✕</button>
         </div>
       )}
-      {lessons.length === 0 && !showForm && (
+      {lessonsLoading && !showForm && (
+        <div style={{ textAlign: "center", padding: "40px 20px", color: "#64748b", fontSize: 13 }}>Loading...</div>
+      )}
+      {!lessonsLoading && lessonsCount === 0 && !hasActiveFilters && !showForm && (
         <div style={{ textAlign: "center", padding: "60px 20px" }}>
           <div style={{ fontSize: 40, marginBottom: 12 }}>📋</div>
           <h3 style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 18, fontWeight: 600, color: "#94a3b8", marginBottom: 8 }}>No Lessons Yet</h3>
@@ -152,9 +208,12 @@ export default function LessonsLog({ org, lessons, refreshLessons, setLessons })
           </div>
         </div>
       )}
-      {!showForm && filtered.length > 0 && (
+      {!lessonsLoading && lessonsCount === 0 && hasActiveFilters && !showForm && (
+        <div style={{ textAlign: "center", padding: "40px 20px", color: "#64748b", fontSize: 13 }}>No lessons match the current filters.</div>
+      )}
+      {!lessonsLoading && !showForm && lessons.length > 0 && (
         <div style={{ display: "grid", gap: 10 }}>
-          {filtered.map(l => {
+          {lessons.map(l => {
             const sev = SEVERITY_COLORS[l.severity] || SEVERITY_COLORS.Medium;
             return (
               <div key={l.id} style={{ background: "#111827", border: "1px solid #1e293b", borderRadius: 8, padding: 16 }}>
@@ -188,6 +247,15 @@ export default function LessonsLog({ org, lessons, refreshLessons, setLessons })
               </div>
             );
           })}
+        </div>
+      )}
+      {!lessonsLoading && !showForm && totalPages > 1 && (
+        <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 12, marginTop: 20, paddingTop: 16, borderTop: "1px solid #1e293b" }}>
+          <button onClick={() => handlePageChange(lessonsPage - 1)} disabled={lessonsPage <= 1}
+            style={{ ...btnSecondary, opacity: lessonsPage <= 1 ? 0.4 : 1, cursor: lessonsPage <= 1 ? "default" : "pointer" }}>Previous</button>
+          <span style={{ fontSize: 12, color: "#94a3b8" }}>Page {lessonsPage} of {totalPages}</span>
+          <button onClick={() => handlePageChange(lessonsPage + 1)} disabled={lessonsPage >= totalPages}
+            style={{ ...btnSecondary, opacity: lessonsPage >= totalPages ? 0.4 : 1, cursor: lessonsPage >= totalPages ? "default" : "pointer" }}>Next</button>
         </div>
       )}
     </>

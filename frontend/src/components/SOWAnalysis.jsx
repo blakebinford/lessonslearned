@@ -5,7 +5,7 @@ import {
   inputStyle, selectStyle, btnPrimary,
 } from "../styles";
 
-export default function SOWAnalysis({ org, lessons }) {
+export default function SOWAnalysis({ org, lessons, lessonsCount }) {
   const [sowText, setSowText] = useState("");
   const [sowFilename, setSowFilename] = useState("");
   const [sowWorkType, setSowWorkType] = useState("");
@@ -59,7 +59,7 @@ export default function SOWAnalysis({ org, lessons }) {
           </div>
           <div style={{ display: "flex", gap: 28, marginBottom: 22, fontSize: 11, color: "#444", flexWrap: "wrap" }}>
             <div><strong>Date:</strong> {today}</div>
-            <div><strong>Lessons:</strong> {lessons.length}</div>
+            <div><strong>Lessons:</strong> {lessonsCount}</div>
             <div><strong>Applicable:</strong> {sortedMatches.length}</div>
             {sowWorkType && <div><strong>Scope Type:</strong> {sowWorkType}</div>}
             <div><strong>Gaps:</strong> {sowAnalysis.gaps?.length || 0}</div>
@@ -95,7 +95,7 @@ export default function SOWAnalysis({ org, lessons }) {
             <h2 style={{ fontSize: 15, fontWeight: 700, color: "#1e3a5f", borderBottom: "1px solid #ddd", paddingBottom: 6, margin: "24px 0 12px" }}>4. Gaps</h2>
             {sowAnalysis.gaps.map((g, i) => <div key={i} style={{ padding: "10px 14px", background: "#fff5f5", borderLeft: "4px solid #e74c3c", borderRadius: 4, marginBottom: 8 }}>{g}</div>)}
           </>)}
-          <div style={{ marginTop: 32, paddingTop: 12, borderTop: "1px solid #ddd", fontSize: 10, color: "#999", textAlign: "center" }}>Lessons Learned SOW Analysis · {today} · {lessons.length} lessons on file</div>
+          <div style={{ marginTop: 32, paddingTop: 12, borderTop: "1px solid #ddd", fontSize: 10, color: "#999", textAlign: "center" }}>Lessons Learned SOW Analysis · {today} · {lessonsCount} lessons on file</div>
         </div>
       </div>
     );

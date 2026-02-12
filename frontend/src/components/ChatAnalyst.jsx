@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import * as api from "../api";
 import { inputStyle, btnPrimary } from "../styles";
 
-export default function ChatAnalyst({ org, lessons }) {
+export default function ChatAnalyst({ org, lessonsCount }) {
   const [messages, setMessages] = useState([]);
   const [chatInput, setChatInput] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
@@ -35,9 +35,9 @@ export default function ChatAnalyst({ org, lessons }) {
             <div style={{ width: 56, height: 56, borderRadius: 12, background: "linear-gradient(135deg, #1e3a5f, #2563eb)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px", fontSize: 24 }}>⚡</div>
             <h3 style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 18, fontWeight: 600, color: "#94a3b8", marginBottom: 8 }}>AI Lessons Analyst</h3>
             <p style={{ fontSize: 13, color: "#475569", maxWidth: 480, margin: "0 auto 24px" }}>
-              {lessons.length > 0 ? `${lessons.length} lessons loaded. Ask about patterns, gaps, or draft new lessons.` : "Add lessons first."}
+              {lessonsCount > 0 ? `${lessonsCount} lessons loaded. Ask about patterns, gaps, or draft new lessons.` : "Add lessons first."}
             </p>
-            {lessons.length > 0 && (
+            {lessonsCount > 0 && (
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, maxWidth: 520, margin: "0 auto" }}>
                 {["What are the most common root causes?", "What gaps exist for Arctic work?", "Draft a lesson about preheat failures", "Which lessons apply to a new mainline spread?"]
                   .map((p, i) => <button key={i} onClick={() => sendChat(p)} style={{ padding: "12px 14px", borderRadius: 6, border: "1px solid #1e293b", background: "#111827", color: "#94a3b8", fontSize: 12, fontFamily: "inherit", cursor: "pointer", textAlign: "left" }}>{p}</button>)}
