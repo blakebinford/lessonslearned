@@ -56,6 +56,44 @@ def _parse_json_response(text):
     except json.JSONDecodeError:
         # Attempt repair
         repaired = clean
+
+        # Handle truncation mid-risk-object: find the last complete JSON
+        # object in a "risks" array and discard the partial one.
+        risks_key = '"risks"'
+        if risks_key in repaired:
+            # Find the last complete "}" that closes a risk object
+            last_complete = repaired.rfind("}")
+            if last_complete > 0:
+                # Check if we're inside an unterminated string value
+                # (odd number of quotes after last complete object)
+                after_last = repaired[last_complete + 1:]
+                if after_last.count('"') % 2 != 0 or (
+                    after_last.strip().rstrip(",").strip()
+                    and not after_last.strip().startswith("]")
+                    and not after_last.strip().startswith("}")
+                ):
+                    # Truncate to the last complete risk object
+                    # Walk back to find the last "}" that is part of a
+                    # complete object (followed by valid array content)
+                    pos = last_complete
+                    while pos > 0:
+                        try:
+                            # Try closing array and outer object from here
+                            candidate = repaired[:pos + 1].rstrip().rstrip(",")
+                            candidate += "]}"
+                            json.loads(candidate)
+                            repaired = repaired[:pos + 1].rstrip().rstrip(",") + "]}"
+                            try:
+                                return json.loads(repaired)
+                            except json.JSONDecodeError:
+                                pass
+                            break
+                        except json.JSONDecodeError:
+                            # Find the next "}" going backwards
+                            pos = repaired.rfind("}", 0, pos)
+                    # If the walk-back didn't produce valid JSON, fall
+                    # through to the generic bracket-closing repair below.
+
         # Fix unterminated strings
         if repaired.count('"') % 2 != 0:
             repaired += '"'
@@ -214,7 +252,8 @@ INSTRUCTIONS:
 - Risk level matrix: Critical = High likelihood + High consequence, High = High/Med or Med/High, Medium = Med/Med or Low/High or High/Low, Low = Low/Low or Low/Med or Med/Low.
 - Mitigations should reference the organization's existing programs where applicable (per org context above).
 - Suggest a responsible role for each risk (e.g. "Project Quality Manager", "Lead Welding Inspector", "NDE Level III"), not a person name.
-- Generate 8-15 risks — enough to be useful but not padded with obvious filler.
+- Generate up to 10 risks — enough to be useful but not padded with obvious filler.
+- Keep each field value under 30 words. Be precise, not verbose.
 - Number risks QR-001 through QR-XXX.
 
 Respond ONLY in valid JSON with this exact structure:
@@ -223,12 +262,12 @@ Respond ONLY in valid JSON with this exact structure:
     {{
       "id": "QR-001",
       "category": "e.g. Welding Quality",
-      "description": "Specific risk description referencing scope conditions",
+      "description": "1 concise sentence referencing scope conditions",
       "likelihood": "High" or "Medium" or "Low",
       "consequence": "High" or "Medium" or "Low",
       "risk_level": "Critical" or "High" or "Medium" or "Low",
       "source_lessons": ["list of lesson IDs or gap-based note"],
-      "mitigation": "Specific mitigation action",
+      "mitigation": "1 concise sentence",
       "residual_risk": "Low" or "Medium",
       "owner": "Suggested responsible role"
     }}
@@ -236,7 +275,7 @@ Respond ONLY in valid JSON with this exact structure:
   "summary": "2-3 sentence overview of the risk profile for this scope"
 }}"""
 
-    text = _call_anthropic(system_prompt, user_msg, max_tokens=4000)
+    text = _call_anthropic(system_prompt, user_msg, max_tokens=8000)
     result = _parse_json_response(text)
 
     if "error" in result:
@@ -245,6 +284,9 @@ Respond ONLY in valid JSON with this exact structure:
             "status": "error",
             "message": result["error"],
         }
+
+    if "risks" in result and isinstance(result["risks"], list):
+        print(f">>> Risk register: {len(result['risks'])} risks parsed")
 
     result["title"] = "Risk Register"
     return result
