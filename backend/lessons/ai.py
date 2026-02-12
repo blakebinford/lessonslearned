@@ -438,14 +438,103 @@ Respond ONLY in valid JSON with this exact structure:
 
 
 def _generate_spec_gaps(context, params):
-    """Stub: Flag code/standard risks from lessons history."""
-    return {
-        "title": "Specification Gaps",
-        "status": "stub",
-        "message": "Specification gap analysis not yet implemented. "
-        "Will flag code and standard risks from "
-        f"{len(context['gaps'])} identified gaps.",
-    }
+    """Flag code/standard risks from lessons history."""
+    sow_text = context["sow_text"][:6000]
+    matches = context["matches"]
+    gaps = context["gaps"]
+    org_profile = context.get("org_profile", {})
+
+    # Build matched lessons detail block
+    lessons_detail = []
+    for m in matches:
+        entry = {
+            "lessonId": m.get("lessonId"),
+            "relevance": m.get("relevance", ""),
+            "reason": m.get("reason", ""),
+        }
+        if m.get("lesson"):
+            entry["lesson"] = m["lesson"]
+        lessons_detail.append(entry)
+
+    org_context = ""
+    if org_profile.get("profile_text"):
+        org_context = (
+            f"\nORGANIZATION CONTEXT:\n"
+            f"Organization: {org_profile.get('name', '')}\n"
+            f"The following programs and systems are already in place. "
+            f"Note where client-specific specs may deviate from or add "
+            f"requirements beyond base codes:\n"
+            f"{org_profile['profile_text'][:4000]}\n"
+        )
+
+    system_prompt = (
+        "You are a senior quality engineer analyzing a scope of work for "
+        "specification and code compliance risks. Cross-reference the "
+        "referenced codes and standards against a lessons learned database "
+        "to identify where historical problems have occurred with specific "
+        "code requirements."
+    )
+
+    user_msg = f"""Analyze the following scope of work for specification and code compliance risks. Cross-reference all referenced codes and standards against the lessons learned database.
+
+SCOPE OF WORK:
+{sow_text}
+
+MATCHED LESSONS LEARNED ({len(lessons_detail)} lessons):
+{json.dumps(lessons_detail, indent=1)}
+
+IDENTIFIED GAPS (risk areas with no historical lessons):
+{json.dumps(gaps, indent=1)}
+{org_context}
+INSTRUCTIONS:
+- Extract ALL codes, standards, and specifications referenced in the SOW text (API 1104, ASME B31.4, B31.8, CSA Z662, 49 CFR 192, 49 CFR 195, API 5L, NACE, SSPC, AWS D1.1, client-specific specs, etc.).
+- Cross-reference each code/standard against the lessons database for historical issues.
+- Flag specific clause areas or requirements that have caused problems — "API 1104 Section 5 essential variables" not just "API 1104".
+- If the SOW references a specific code edition, note any known issues with that edition.
+- Flag where client specs may conflict with or add requirements beyond the base code.
+- Identify codes/standards that SHOULD be referenced in the SOW but aren't, based on the work type (e.g. buried pipe without cathodic protection spec reference, coating work without SSPC/NACE reference).
+- Connect to specific lesson IDs wherever possible.
+- Do NOT pad with generic boilerplate about codes — only flag real historical issues from the lessons database or genuine specification gaps.
+- Keep each field value under 40 words. Be specific and precise.
+- Generate up to 3 risk areas per referenced spec — only include real issues.
+
+Respond ONLY in valid JSON with this exact structure:
+{{
+  "referenced_specs": [
+    {{
+      "code": "API 1104",
+      "description": "Welding of Pipelines and Related Facilities",
+      "lesson_count": 3,
+      "risk_areas": [
+        {{
+          "clause_area": "Essential Variables (Section 5)",
+          "issue": "Historical violations related to heat input and interpass temperature tracking",
+          "lesson_ids": [42, 87],
+          "recommendation": "Specific recommendation for this clause area"
+        }}
+      ]
+    }}
+  ],
+  "unreferenced_specs": ["Codes/standards the SOW SHOULD reference but does not, based on the scope of work — e.g. if the SOW describes coating work but does not reference SSPC/NACE standards. Each entry should be a string explaining what is missing and why it matters."],
+  "client_spec_risks": ["Risks related to client-specific specifications that deviate from or add requirements beyond industry standard codes. Each entry should be a string. Leave empty array if no client specs are referenced."],
+  "summary": "2-3 sentence overview of the specification risk profile for this scope"
+}}"""
+
+    text = _call_anthropic(system_prompt, user_msg, max_tokens=8000)
+    result = _parse_json_response(text)
+
+    if "error" in result:
+        return {
+            "title": "Specification Gaps",
+            "status": "error",
+            "message": result["error"],
+        }
+
+    if "referenced_specs" in result and isinstance(result["referenced_specs"], list):
+        print(f">>> Spec gaps: {len(result['referenced_specs'])} specs analyzed")
+
+    result["title"] = "Specification Gaps"
+    return result
 
 
 def _generate_executive_narrative(context, params):
