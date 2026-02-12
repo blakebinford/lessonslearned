@@ -1,10 +1,11 @@
 import { useState, useRef } from "react";
 import * as api from "../api";
+import { useToast } from "./Toast";
 import { inputStyle, btnPrimary, btnSecondary, labelStyle } from "../styles";
 
 export default function OrgProfile({ org, setOrg, onClose }) {
+  const { showToast } = useToast();
   const [orgForm, setOrgForm] = useState({ name: org?.name || "", profile_text: org?.profile_text || "" });
-  const [orgSaved, setOrgSaved] = useState(false);
   const orgFileRef = useRef(null);
 
   const handleSaveOrg = async () => {
@@ -12,9 +13,8 @@ export default function OrgProfile({ org, setOrg, onClose }) {
     try {
       const updated = await api.updateOrganization(org.id, orgForm);
       setOrg(updated);
-      setOrgSaved(true);
-      setTimeout(() => setOrgSaved(false), 2000);
-    } catch (err) { alert(err.message); }
+      showToast("Organization profile saved", "success");
+    } catch (err) { showToast(err.message, "error"); }
   };
 
   const handleOrgDocUpload = async (file) => {
@@ -26,7 +26,8 @@ export default function OrgProfile({ org, setOrg, onClose }) {
           ? prev.profile_text + "\n\n--- Extracted from " + file.name + " ---\n" + result.text.slice(0, 12000)
           : result.text.slice(0, 12000),
       }));
-    } catch (err) { alert(err.message); }
+      showToast("Document uploaded and text extracted", "success");
+    } catch (err) { showToast(err.message, "error"); }
   };
 
   return (
@@ -54,7 +55,6 @@ export default function OrgProfile({ org, setOrg, onClose }) {
       </div>
       <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
         <button onClick={handleSaveOrg} style={btnPrimary}>Save Profile</button>
-        {orgSaved && <span style={{ fontSize: 12, color: "#34d399" }}>✓ Saved</span>}
       </div>
     </div>
   );

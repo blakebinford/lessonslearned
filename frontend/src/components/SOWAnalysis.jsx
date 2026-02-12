@@ -1,11 +1,13 @@
 import { useState, useRef } from "react";
 import * as api from "../api";
+import { useToast } from "./Toast";
 import {
   SOW_WORK_TYPES, SEVERITY_COLORS, badge,
   inputStyle, selectStyle, btnPrimary,
 } from "../styles";
 
 export default function SOWAnalysis({ org, lessons, lessonsCount }) {
+  const { showToast } = useToast();
   const [sowText, setSowText] = useState("");
   const [sowFilename, setSowFilename] = useState("");
   const [sowWorkType, setSowWorkType] = useState("");
@@ -22,7 +24,7 @@ export default function SOWAnalysis({ org, lessons, lessonsCount }) {
       const result = await api.uploadSOWFile(file);
       setSowText(result.text);
     } catch (err) {
-      setSowText(`Error: ${err.message}. Try pasting text directly.`);
+      showToast("File upload failed: " + err.message + ". Try pasting text directly.", "error");
     }
   };
 
@@ -35,7 +37,7 @@ export default function SOWAnalysis({ org, lessons, lessonsCount }) {
       const result = await api.analyzeSOW(org.id, sowText, sowWorkType, sowFilename);
       setSowAnalysis(result.results);
     } catch (err) {
-      setSowAnalysis({ error: err.message });
+      showToast("Analysis failed: " + err.message, "error");
     } finally {
       setAnalyzing(false);
     }
@@ -182,9 +184,6 @@ export default function SOWAnalysis({ org, lessons, lessonsCount }) {
             </div>
           )}
         </div>
-      )}
-      {sowAnalysis?.error && (
-        <div style={{ padding: "14px 16px", borderRadius: 8, background: "#2d0a0a", border: "1px solid #991b1b", color: "#f87171", fontSize: 13 }}>{sowAnalysis.error}</div>
       )}
     </div>
   );

@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback } from "react";
 import * as api from "../api";
+import { useToast } from "./Toast";
 import {
   WORK_TYPES, PHASES, DISCIPLINES, SEVERITIES, ENVIRONMENTS,
   SEVERITY_COLORS, badge, inputStyle, selectStyle, btnPrimary, btnSecondary, labelStyle,
@@ -8,6 +9,7 @@ import {
 const emptyForm = { title: "", description: "", root_cause: "", recommendation: "", impact: "", work_type: "", phase: "", discipline: "", severity: "Medium", environment: "", project: "", location: "", keywords: "" };
 
 export default function LessonsLog({ org, lessons, lessonsCount, setLessons, setLessonsCount }) {
+  const { showToast } = useToast();
   const [showForm, setShowForm] = useState(false);
   const [editId, setEditId] = useState(null);
   const [form, setForm] = useState(emptyForm);
@@ -22,7 +24,6 @@ export default function LessonsLog({ org, lessons, lessonsCount, setLessons, set
   const searchTimerRef = useRef(null);
 
   const importRef = useRef(null);
-  const [importResult, setImportResult] = useState(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState(null);
 
   const fetchLessons = useCallback(async (page, search, discipline, severity, workType) => {
@@ -91,16 +92,18 @@ export default function LessonsLog({ org, lessons, lessonsCount, setLessons, set
       if (editId) {
         await api.updateLesson(editId, form);
         await refreshLessons();
+        showToast("Lesson updated", "success");
       } else {
         await api.createLesson({ ...form, organization: org.id });
         setLessonsPage(1);
         await fetchLessons(1, searchText, filterDiscipline, filterSeverity, filterWorkType);
+        showToast("Lesson saved", "success");
       }
       setForm(emptyForm);
       setEditId(null);
       setShowForm(false);
     } catch (err) {
-      alert(err.message);
+      showToast(err.message, "error");
     }
   };
 
@@ -116,7 +119,8 @@ export default function LessonsLog({ org, lessons, lessonsCount, setLessons, set
         await api.deleteLesson(id);
         setDeleteConfirmId(null);
         await refreshLessons();
-      } catch (err) { alert(err.message); }
+        showToast("Lesson deleted", "success");
+      } catch (err) { showToast(err.message, "error"); }
     } else {
       setDeleteConfirmId(id);
       setTimeout(() => setDeleteConfirmId(prev => prev === id ? null : prev), 4000);
@@ -125,13 +129,12 @@ export default function LessonsLog({ org, lessons, lessonsCount, setLessons, set
 
   const handleImport = async (file) => {
     if (!org) return;
-    setImportResult(null);
     try {
       const result = await api.importLessons(org.id, file);
-      setImportResult({ success: true, ...result });
       await refreshLessons();
+      showToast(`Imported ${result.imported} lessons from "${result.filename}"`, "success");
     } catch (err) {
-      setImportResult({ error: err.message });
+      showToast("Import failed: " + err.message, "error");
     }
   };
 
@@ -186,12 +189,6 @@ export default function LessonsLog({ org, lessons, lessonsCount, setLessons, set
           <select value={filterSeverity} onChange={e => handleSeverityChange(e.target.value)} style={{ ...selectStyle, width: "auto", padding: "8px 10px" }}><option value="All">All Severities</option>{SEVERITIES.map(s => <option key={s}>{s}</option>)}</select>
           <select value={filterWorkType} onChange={e => handleWorkTypeChange(e.target.value)} style={{ ...selectStyle, width: "auto", padding: "8px 10px" }}><option value="All">All Work Types</option>{WORK_TYPES.map(w => <option key={w}>{w}</option>)}</select>
           <span style={{ fontSize: 11, color: "#475569", marginLeft: "auto" }}>{lessonsCount} result{lessonsCount !== 1 ? "s" : ""}</span>
-        </div>
-      )}
-      {importResult && !showForm && (
-        <div style={{ marginBottom: 14, padding: "12px 16px", borderRadius: 8, fontSize: 13, background: importResult.error ? "#2d0a0a" : "#0d2918", border: `1px solid ${importResult.error ? "#991b1b" : "#166534"}`, color: importResult.error ? "#f87171" : "#34d399", display: "flex", justifyContent: "space-between" }}>
-          <span>{importResult.error || `Imported ${importResult.imported} lessons from "${importResult.filename}"`}</span>
-          <button onClick={() => setImportResult(null)} style={{ background: "none", border: "none", color: "inherit", cursor: "pointer" }}>✕</button>
         </div>
       )}
       {lessonsLoading && !showForm && (

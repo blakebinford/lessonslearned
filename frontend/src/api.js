@@ -23,6 +23,7 @@ async function handleResponse(resp) {
   if (resp.status === 401) {
     localStorage.removeItem('ll_token');
     localStorage.removeItem('ll_user');
+    localStorage.setItem('ll_session_expired', '1');
     window.location.reload();
     throw new Error('Session expired');
   }
@@ -97,6 +98,8 @@ export async function deleteLesson(id) {
   });
   if (resp.status === 401) {
     localStorage.removeItem('ll_token');
+    localStorage.removeItem('ll_user');
+    localStorage.setItem('ll_session_expired', '1');
     window.location.reload();
   }
   if (!resp.ok) {
