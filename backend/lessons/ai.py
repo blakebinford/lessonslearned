@@ -388,7 +388,9 @@ INSTRUCTIONS:
 - For each position, specify the phase (Full Duration, Construction Only, Pre-Construction + Construction, Pre-Construction Only, Commissioning, etc.).
 - Calculate peak headcount (maximum staff on-site at any one time) vs total unique positions.
 - Provide a rough-order-of-magnitude cost estimate with monthly burn rate and total.
-- Keep justifications concise (1-2 sentences each).
+- Keep justification to 1 concise sentence per position.
+- Keep assumptions to 1 sentence each, maximum 5 assumptions.
+- Keep lessons_impact to 1 sentence each, maximum 5 entries.
 
 Respond ONLY in valid JSON with this exact structure:
 {{
@@ -415,9 +417,13 @@ Respond ONLY in valid JSON with this exact structure:
 }}"""
 
     text = _call_anthropic(system_prompt, user_msg, max_tokens=8000)
+    print(f">>> RAW RESPONSE (first 500 chars): {text[:500]}")
+    print(f">>> RAW RESPONSE (last 200 chars): {text[-200:]}")
     result = _parse_json_response(text)
 
     if "error" in result:
+        print(f">>> JSON PARSE FAILED: {result['error']}")
+        print(f">>> RAW TEXT LENGTH: {len(text)}")
         return {
             "title": "Quality Staffing Estimate",
             "status": "error",

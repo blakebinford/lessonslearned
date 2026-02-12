@@ -287,6 +287,9 @@ def generate_deliverable(request):
     deliverable_type = request.data.get("deliverable_type", "")
     params = request.data.get("params", {})
 
+    print(f">>> DELIVERABLE: type={deliverable_type}")
+    print(f">>> STAFFING PARAMS: {params}")
+
     if not analysis_id:
         return Response({"error": "analysis_id is required"}, status=400)
     if deliverable_type not in ai.DELIVERABLE_TYPES:
@@ -317,6 +320,8 @@ def generate_deliverable(request):
         context = ai._build_analysis_context(analysis, lessons_list, org_profile)
         content = ai.generate_deliverable(deliverable_type, context, params)
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         logger.exception("Deliverable generation failed")
         return Response({"error": str(e)}, status=500)
 
