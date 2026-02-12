@@ -79,6 +79,128 @@ def _parse_json_response(text):
             return {"error": "Analysis response was truncated. Please try again."}
 
 
+def _build_analysis_context(sow_analysis, lessons, org_profile):
+    """
+    Build the shared context dict used by all deliverable generators.
+    Accepts a SOWAnalysis model instance, the lessons queryset (list of dicts),
+    and the org_profile dict.
+    Returns a dict with sow_text, work_type, matches (with full lesson details),
+    gaps, recommendations, summary, and org_profile.
+    """
+    results = sow_analysis.results or {}
+    matches = results.get("matches", [])
+
+    # Build a lookup of lessons by id
+    lessons_by_id = {l["id"]: l for l in lessons}
+
+    # Enrich matches with full lesson details
+    enriched_matches = []
+    for m in matches:
+        lesson = lessons_by_id.get(m.get("lessonId"))
+        enriched = {
+            "lessonId": m.get("lessonId"),
+            "relevance": m.get("relevance", ""),
+            "reason": m.get("reason", ""),
+        }
+        if lesson:
+            enriched["lesson"] = {
+                "id": lesson["id"],
+                "title": lesson.get("title", ""),
+                "description": lesson.get("description", "")[:500],
+                "root_cause": lesson.get("root_cause", "")[:300],
+                "recommendation": lesson.get("recommendation", "")[:300],
+                "work_type": lesson.get("work_type", ""),
+                "phase": lesson.get("phase", ""),
+                "discipline": lesson.get("discipline", ""),
+                "severity": lesson.get("severity", ""),
+                "environment": lesson.get("environment", ""),
+                "project": lesson.get("project", ""),
+                "location": lesson.get("location", ""),
+                "keywords": lesson.get("keywords", "")[:100],
+            }
+        enriched_matches.append(enriched)
+
+    return {
+        "sow_text": sow_analysis.sow_text[:8000],
+        "work_type": sow_analysis.work_type or "",
+        "summary": results.get("summary", ""),
+        "matches": enriched_matches,
+        "gaps": results.get("gaps", []),
+        "recommendations": results.get("recommendations", []),
+        "org_profile": org_profile,
+    }
+
+
+DELIVERABLE_TYPES = {
+    "risk_register",
+    "staffing_estimate",
+    "spec_gaps",
+    "executive_narrative",
+}
+
+
+def generate_deliverable(deliverable_type, context, params=None):
+    """
+    Dispatch to the appropriate deliverable generator stub.
+    context comes from _build_analysis_context().
+    Returns a dict with the deliverable content.
+    """
+    generators = {
+        "risk_register": _generate_risk_register,
+        "staffing_estimate": _generate_staffing_estimate,
+        "spec_gaps": _generate_spec_gaps,
+        "executive_narrative": _generate_executive_narrative,
+    }
+    generator = generators.get(deliverable_type)
+    if not generator:
+        raise ValueError(f"Unknown deliverable type: {deliverable_type}")
+    return generator(context, params or {})
+
+
+def _generate_risk_register(context, params):
+    """Stub: Generate project risk register from applicable lessons."""
+    return {
+        "title": "Risk Register",
+        "status": "stub",
+        "message": "Risk register generation not yet implemented. "
+        "Will produce a structured risk register from the "
+        f"{len(context['matches'])} applicable lessons.",
+    }
+
+
+def _generate_staffing_estimate(context, params):
+    """Stub: Estimate quality staffing requirements for scope."""
+    return {
+        "title": "Quality Staffing Estimate",
+        "status": "stub",
+        "message": "Staffing estimate generation not yet implemented. "
+        "Will estimate quality staffing requirements based on "
+        "the scope and lessons history.",
+    }
+
+
+def _generate_spec_gaps(context, params):
+    """Stub: Flag code/standard risks from lessons history."""
+    return {
+        "title": "Specification Gaps",
+        "status": "stub",
+        "message": "Specification gap analysis not yet implemented. "
+        "Will flag code and standard risks from "
+        f"{len(context['gaps'])} identified gaps.",
+    }
+
+
+def _generate_executive_narrative(context, params):
+    """Stub: One-page executive narrative for bid review."""
+    return {
+        "title": "Executive Summary",
+        "status": "stub",
+        "message": "Executive narrative generation not yet implemented. "
+        "Will produce a one-page narrative summarizing the scope "
+        "analysis for bid review.",
+    }
+
+
 def analyze_sow(sow_text, work_type, lessons, org_profile):
     """
     Cross-reference a scope of work against the lessons learned database.

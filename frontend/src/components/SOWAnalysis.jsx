@@ -24,6 +24,46 @@ export default function SOWAnalysis({ org, lessons, lessonsCount, onLessonsChang
   const [activeHistoryId, setActiveHistoryId] = useState(null);
   const [modalLesson, setModalLesson] = useState(null);
 
+  // Deliverables state
+  const [deliverables, setDeliverables] = useState({});
+  const [deliverablesLoading, setDeliverablesLoading] = useState({});
+
+  const DELIVERABLE_CARDS = [
+    { type: "risk_register", icon: "\u26A0\uFE0F", label: "Risk Register", desc: "Generate project risk register from applicable lessons" },
+    { type: "staffing_estimate", icon: "\uD83D\uDC65", label: "Quality Staffing", desc: "Estimate quality staffing requirements for scope" },
+    { type: "spec_gaps", icon: "\uD83D\uDCCB", label: "Specification Gaps", desc: "Flag code/standard risks from lessons history" },
+    { type: "executive_narrative", icon: "\uD83D\uDCDD", label: "Executive Summary", desc: "One-page narrative for bid review" },
+  ];
+
+  const handleGenerateDeliverable = async (type) => {
+    if (!activeHistoryId) return;
+    setDeliverablesLoading((prev) => ({ ...prev, [type]: true }));
+    try {
+      const result = await api.generateDeliverable(activeHistoryId, type);
+      setDeliverables((prev) => ({ ...prev, [type]: result.content }));
+      // Also update sowAnalysis so it persists in local state
+      setSowAnalysis((prev) => {
+        if (!prev) return prev;
+        const updated = { ...prev };
+        if (!updated.deliverables) updated.deliverables = {};
+        updated.deliverables[type] = result.content;
+        return updated;
+      });
+    } catch (err) {
+      showToast(`Failed to generate deliverable: ${err.message}`, "error");
+    } finally {
+      setDeliverablesLoading((prev) => ({ ...prev, [type]: false }));
+    }
+  };
+
+  const handleCopyDeliverable = (content) => {
+    const text = typeof content === "string" ? content : JSON.stringify(content, null, 2);
+    navigator.clipboard.writeText(text).then(
+      () => showToast("Copied to clipboard", "success"),
+      () => showToast("Failed to copy", "error")
+    );
+  };
+
   const fetchHistory = useCallback(async () => {
     if (!org) return;
     setLoadingHistory(true);
@@ -61,6 +101,8 @@ export default function SOWAnalysis({ org, lessons, lessonsCount, onLessonsChang
     setSowAnalysis(null);
     setShowReport(false);
     setActiveHistoryId(null);
+    setDeliverables({});
+    setDeliverablesLoading({});
     try {
       const result = await api.analyzeSOW(org.id, sowText, sowWorkType, sowFilename);
       setSowAnalysis(result.results);
@@ -81,6 +123,9 @@ export default function SOWAnalysis({ org, lessons, lessonsCount, onLessonsChang
     setSowText(item.sow_text || "");
     setActiveHistoryId(item.id);
     setShowReport(false);
+    // Restore previously generated deliverables
+    setDeliverables(item.results?.deliverables || {});
+    setDeliverablesLoading({});
   };
 
   const [exporting, setExporting] = useState(false);
@@ -113,6 +158,8 @@ export default function SOWAnalysis({ org, lessons, lessonsCount, onLessonsChang
     setSowAnalysis(null);
     setShowReport(false);
     setActiveHistoryId(null);
+    setDeliverables({});
+    setDeliverablesLoading({});
     if (sowFileRef.current) sowFileRef.current.value = "";
   };
 
@@ -338,6 +385,76 @@ export default function SOWAnalysis({ org, lessons, lessonsCount, onLessonsChang
               ))}
             </div>
           )}
+
+          {/* Generate Deliverables Section */}
+          <div style={{ background: "#111827", border: "1px solid #1e293b", borderRadius: 8, padding: 18 }}>
+            <h4 style={{ fontSize: 13, fontWeight: 600, color: "#a78bfa", margin: "0 0 14px" }}>GENERATE DELIVERABLES</h4>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              {DELIVERABLE_CARDS.map((card) => {
+                const content = deliverables[card.type];
+                const loading = deliverablesLoading[card.type];
+                return (
+                  <div key={card.type} style={{ background: "#0a0e17", borderRadius: 8, border: content ? "1px solid #334155" : "1px solid #1e293b", overflow: "hidden" }}>
+                    <div style={{ padding: "14px 16px" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
+                        <div>
+                          <span style={{ fontSize: 14 }}>{card.icon}</span>{" "}
+                          <span style={{ fontSize: 13, fontWeight: 600, color: "#e2e8f0" }}>{card.label}</span>
+                        </div>
+                        <div style={{ display: "flex", gap: 6 }}>
+                          {content && (
+                            <button
+                              onClick={() => handleCopyDeliverable(content)}
+                              style={{ background: "none", border: "1px solid #334155", borderRadius: 4, padding: "4px 8px", cursor: "pointer", fontSize: 11, color: "#94a3b8" }}
+                              title="Copy to clipboard"
+                            >
+                              {"\uD83D\uDCCB"} Copy
+                            </button>
+                          )}
+                          <button
+                            onClick={() => handleGenerateDeliverable(card.type)}
+                            disabled={loading || !activeHistoryId}
+                            style={{
+                              ...btnPrimary,
+                              padding: "4px 12px",
+                              fontSize: 11,
+                              opacity: loading || !activeHistoryId ? 0.6 : 1,
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 6,
+                            }}
+                          >
+                            {loading ? (
+                              <>
+                                <span style={{ display: "inline-block", width: 12, height: 12, border: "2px solid #ffffff40", borderTopColor: "#fff", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+                                Generating...
+                              </>
+                            ) : content ? "Regenerate" : "Generate"}
+                          </button>
+                        </div>
+                      </div>
+                      <p style={{ fontSize: 12, color: "#64748b", margin: 0, lineHeight: 1.4 }}>{card.desc}</p>
+                    </div>
+                    {content && (
+                      <div style={{ padding: "12px 16px", borderTop: "1px solid #1e293b", background: "#0f1629" }}>
+                        {content.status === "stub" ? (
+                          <div style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.6 }}>
+                            <span style={{ fontWeight: 600, color: "#a78bfa" }}>{content.title}</span>
+                            <p style={{ margin: "6px 0 0" }}>{content.message}</p>
+                          </div>
+                        ) : (
+                          <pre style={{ fontSize: 12, color: "#cbd5e1", margin: 0, whiteSpace: "pre-wrap", lineHeight: 1.6 }}>
+                            {typeof content === "string" ? content : JSON.stringify(content, null, 2)}
+                          </pre>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+          <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
         </div>
       )}
       <LessonModal
