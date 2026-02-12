@@ -113,7 +113,11 @@ class SOWAnalysisViewSet(viewsets.ReadOnlyModelViewSet):
     """Read-only viewset for past SOW analyses."""
 
     def get_queryset(self):
-        return SOWAnalysis.objects.filter(organization__created_by=self.request.user)
+        qs = SOWAnalysis.objects.filter(organization__created_by=self.request.user)
+        org_id = self.request.query_params.get("org")
+        if org_id:
+            qs = qs.filter(organization_id=org_id)
+        return qs
 
     def get_serializer_class(self):
         from .serializers import SOWAnalysisSerializer
