@@ -1,8 +1,10 @@
+import io
 import logging
 from rest_framework import viewsets, status, permissions
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
+from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
 
 from .models import Organization, Lesson, SOWAnalysis
@@ -214,6 +216,138 @@ def upload_sow_file(request):
         "filename": uploaded.name,
         "length": len(text),
     })
+
+
+@api_view(["POST"])
+def export_sow_xlsx(request):
+    """Export an SOW analysis as a styled Excel workbook."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+
+    analysis_id = request.data.get("analysis_id")
+    if not analysis_id:
+        return Response({"error": "analysis_id is required"}, status=400)
+
+    analysis = get_object_or_404(
+        SOWAnalysis, id=analysis_id, organization__created_by=request.user
+    )
+    results = analysis.results or {}
+    matches = results.get("matches", [])
+    recommendations = results.get("recommendations", [])
+    gaps = results.get("gaps", [])
+
+    # Look up lesson details for each match
+    lesson_ids = [m.get("lessonId") for m in matches if m.get("lessonId")]
+    lessons_by_id = {
+        l.id: l
+        for l in Lesson.objects.filter(
+            id__in=lesson_ids, organization=analysis.organization
+        )
+    }
+
+    wb = Workbook()
+
+    # --- Styles ---
+    header_fill = PatternFill(start_color="1E3A5F", end_color="1E3A5F", fill_type="solid")
+    header_font = Font(name="Calibri", bold=True, color="FFFFFF", size=11)
+    header_alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+    cell_font = Font(name="Calibri", size=11)
+    cell_alignment = Alignment(vertical="top", wrap_text=True)
+    thin_border = Border(
+        bottom=Side(style="thin", color="DDDDDD"),
+    )
+
+    # ──────────────────────────────────────────────
+    # Sheet 1: Applicable Lessons
+    # ──────────────────────────────────────────────
+    ws1 = wb.active
+    ws1.title = "Applicable Lessons"
+    columns = [
+        "Relevance", "Lesson Title", "Discipline", "Work Type",
+        "Project", "Why It Applies", "Recommendation",
+    ]
+    for col_idx, col_name in enumerate(columns, 1):
+        cell = ws1.cell(row=1, column=col_idx, value=col_name)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = header_alignment
+
+    # Set column widths
+    widths = [12, 30, 16, 16, 20, 45, 45]
+    for i, w in enumerate(widths, 1):
+        ws1.column_dimensions[ws1.cell(row=1, column=i).column_letter].width = w
+
+    row = 2
+    for level_idx, level in enumerate(["High", "Medium", "Low"]):
+        group = [m for m in matches if m.get("relevance") == level]
+        if not group:
+            continue
+        # Blank separator row between groups (skip before first group)
+        if level_idx > 0 and row > 2:
+            row += 1
+        for m in group:
+            lesson = lessons_by_id.get(m.get("lessonId"))
+            ws1.cell(row=row, column=1, value=level).font = cell_font
+            ws1.cell(row=row, column=1).alignment = cell_alignment
+            ws1.cell(row=row, column=2, value=lesson.title if lesson else str(m.get("lessonId", ""))).font = cell_font
+            ws1.cell(row=row, column=2).alignment = cell_alignment
+            ws1.cell(row=row, column=3, value=lesson.discipline if lesson else "").font = cell_font
+            ws1.cell(row=row, column=3).alignment = cell_alignment
+            ws1.cell(row=row, column=4, value=lesson.work_type if lesson else "").font = cell_font
+            ws1.cell(row=row, column=4).alignment = cell_alignment
+            ws1.cell(row=row, column=5, value=lesson.project if lesson else "").font = cell_font
+            ws1.cell(row=row, column=5).alignment = cell_alignment
+            ws1.cell(row=row, column=6, value=m.get("reason", "")).font = cell_font
+            ws1.cell(row=row, column=6).alignment = cell_alignment
+            ws1.cell(row=row, column=7, value=lesson.recommendation if lesson else "").font = cell_font
+            ws1.cell(row=row, column=7).alignment = cell_alignment
+            # Apply border to all cells in the row
+            for c in range(1, 8):
+                ws1.cell(row=row, column=c).border = thin_border
+            row += 1
+
+    # ──────────────────────────────────────────────
+    # Sheet 2: Recommendations
+    # ──────────────────────────────────────────────
+    ws2 = wb.create_sheet("Recommendations")
+    cell = ws2.cell(row=1, column=1, value="Recommendations")
+    cell.fill = header_fill
+    cell.font = header_font
+    cell.alignment = header_alignment
+    ws2.column_dimensions["A"].width = 80
+    for i, rec in enumerate(recommendations, 1):
+        ws2.cell(row=i + 1, column=1, value=f"{i}. {rec}").font = cell_font
+        ws2.cell(row=i + 1, column=1).alignment = cell_alignment
+
+    # ──────────────────────────────────────────────
+    # Sheet 3: Gaps
+    # ──────────────────────────────────────────────
+    ws3 = wb.create_sheet("Gaps")
+    cell = ws3.cell(row=1, column=1, value="Gaps")
+    cell.fill = header_fill
+    cell.font = header_font
+    cell.alignment = header_alignment
+    ws3.column_dimensions["A"].width = 80
+    for i, gap in enumerate(gaps, 1):
+        ws3.cell(row=i + 1, column=1, value=gap).font = cell_font
+        ws3.cell(row=i + 1, column=1).alignment = cell_alignment
+
+    # Write to buffer and return
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    filename = analysis.filename or "sow-analysis"
+    if filename.rsplit(".", 1)[-1].lower() in ("docx", "pdf", "txt", "doc"):
+        filename = filename.rsplit(".", 1)[0]
+    safe_filename = filename.replace('"', "")
+
+    response = HttpResponse(
+        buf.getvalue(),
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    response["Content-Disposition"] = f'attachment; filename="{safe_filename} - SOW Analysis.xlsx"'
+    return response
 
 
 @api_view(["POST"])

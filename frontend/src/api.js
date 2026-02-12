@@ -152,6 +152,27 @@ export async function analyzeSOW(orgId, sowText, workType, filename) {
   return handleResponse(resp);
 }
 
+// ── SOW Export ──
+export async function exportSOWExcel(analysisId) {
+  const resp = await fetch(`${BASE}/sow/export-xlsx/`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify({ analysis_id: analysisId }),
+  });
+  if (resp.status === 401) {
+    localStorage.removeItem('ll_token');
+    localStorage.removeItem('ll_user');
+    localStorage.setItem('ll_session_expired', '1');
+    window.location.reload();
+    throw new Error('Session expired');
+  }
+  if (!resp.ok) {
+    const data = await resp.json().catch(() => ({}));
+    throw new Error(data.error || 'Export failed');
+  }
+  return resp;
+}
+
 // ── AI Chat ──
 export async function chatWithAnalyst(orgId, message, history) {
   const resp = await fetch(`${BASE}/chat/`, {

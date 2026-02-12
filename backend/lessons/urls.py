@@ -11,6 +11,7 @@ urlpatterns = [
     path("", include(router.urls)),
     path("sow/analyze/", views.analyze_sow, name="analyze-sow"),
     path("sow/upload/", views.upload_sow_file, name="upload-sow"),
+    path("sow/export-xlsx/", views.export_sow_xlsx, name="export-sow-xlsx"),
     path("chat/", views.chat_analyst, name="chat-analyst"),
     path("register/", views.register, name="register"),
     path("login/", views.login_view, name="login"),
