@@ -1,5 +1,7 @@
 import io
 import logging
+from django.db.models import Count, Q
+from django.utils import timezone
 from rest_framework import viewsets, status, permissions
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
@@ -108,6 +110,59 @@ class LessonViewSet(viewsets.ModelViewSet):
             "imported": created,
             "total_in_file": len(parsed),
             "filename": uploaded.name,
+        })
+
+    @action(detail=False, methods=["get"])
+    def stats(self, request):
+        """Lightweight aggregation stats for the lessons dashboard."""
+        org_id = request.query_params.get("org")
+        qs = Lesson.objects.filter(organization__created_by=request.user)
+        if org_id:
+            qs = qs.filter(organization_id=org_id)
+
+        total = qs.count()
+
+        by_severity = {}
+        for row in qs.values("severity").annotate(n=Count("id")):
+            by_severity[row["severity"]] = row["n"]
+
+        by_discipline = {}
+        for row in (
+            qs.exclude(discipline="")
+            .values("discipline")
+            .annotate(n=Count("id"))
+            .order_by("-n")[:3]
+        ):
+            by_discipline[row["discipline"]] = row["n"]
+
+        by_work_type = {}
+        for row in (
+            qs.exclude(work_type="")
+            .values("work_type")
+            .annotate(n=Count("id"))
+            .order_by("-n")[:3]
+        ):
+            by_work_type[row["work_type"]] = row["n"]
+
+        now = timezone.now()
+        month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        if now.month == 1:
+            last_month_start = month_start.replace(year=now.year - 1, month=12)
+        else:
+            last_month_start = month_start.replace(month=now.month - 1)
+
+        this_month = qs.filter(created_at__gte=month_start).count()
+        last_month = qs.filter(
+            created_at__gte=last_month_start, created_at__lt=month_start
+        ).count()
+
+        return Response({
+            "total": total,
+            "by_severity": by_severity,
+            "by_discipline": by_discipline,
+            "by_work_type": by_work_type,
+            "this_month": this_month,
+            "last_month": last_month,
         })
 
 

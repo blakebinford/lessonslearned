@@ -109,6 +109,11 @@ export async function deleteLesson(id) {
   return true;
 }
 
+export async function getLessonStats(orgId) {
+  const resp = await fetch(`${BASE}/lessons/stats/?org=${orgId}`, { headers: getHeaders() });
+  return handleResponse(resp);
+}
+
 export async function importLessons(orgId, file) {
   const form = new FormData();
   form.append('file', file);
