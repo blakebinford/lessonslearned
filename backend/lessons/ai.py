@@ -293,14 +293,142 @@ Respond ONLY in valid JSON with this exact structure:
 
 
 def _generate_staffing_estimate(context, params):
-    """Stub: Estimate quality staffing requirements for scope."""
-    return {
-        "title": "Quality Staffing Estimate",
-        "status": "stub",
-        "message": "Staffing estimate generation not yet implemented. "
-        "Will estimate quality staffing requirements based on "
-        "the scope and lessons history.",
-    }
+    """Generate quality staffing estimate based on scope, lessons, and user-provided parameters."""
+    sow_text = context["sow_text"][:6000]
+    matches = context["matches"]
+    org_profile = context.get("org_profile", {})
+
+    # Extract user-provided parameters
+    pipe_diameter = params.get("pipe_diameter", "")
+    weld_count = params.get("weld_count")
+    pipeline_mileage = params.get("pipeline_mileage")
+    num_spreads = params.get("num_spreads", 1)
+    facilities_count = params.get("facilities_count", 0)
+    duration_months = params.get("duration_months")
+    special_conditions = params.get("special_conditions", [])
+
+    # Build matched lessons detail block
+    lessons_detail = []
+    for m in matches:
+        entry = {
+            "lessonId": m.get("lessonId"),
+            "relevance": m.get("relevance", ""),
+            "reason": m.get("reason", ""),
+        }
+        if m.get("lesson"):
+            entry["lesson"] = m["lesson"]
+        lessons_detail.append(entry)
+
+    org_context = ""
+    if org_profile.get("profile_text"):
+        org_context = (
+            f"\nORGANIZATION CONTEXT:\n"
+            f"Organization: {org_profile.get('name', '')}\n"
+            f"Existing programs and systems already in place:\n"
+            f"{org_profile['profile_text'][:4000]}\n"
+        )
+
+    # Build scope parameters block
+    scope_params = f"""PROJECT SCOPE PARAMETERS (provided by user):
+- Pipe Diameter: {pipe_diameter or 'Not specified'}
+- Estimated Weld Count: {weld_count if weld_count else 'Not specified'}
+- Pipeline Mileage: {pipeline_mileage if pipeline_mileage else 'Not specified'}
+- Number of Spreads: {num_spreads}
+- Facilities Count (compressor stations, meter stations, etc.): {facilities_count}
+- Project Duration: {duration_months} months{' (not specified)' if not duration_months else ''}
+- Special Conditions: {', '.join(special_conditions) if special_conditions else 'None'}"""
+
+    system_prompt = (
+        "You are a senior quality director estimating quality staffing requirements "
+        "for a pipeline construction project. Base your estimates on industry standard "
+        "ratios, the scope parameters provided, and historical lessons that indicate "
+        "where additional quality oversight was needed."
+    )
+
+    user_msg = f"""Based on the following scope of work, project parameters, and matched lessons learned, generate a quality staffing estimate.
+
+SCOPE OF WORK:
+{sow_text}
+
+{scope_params}
+
+MATCHED LESSONS LEARNED ({len(lessons_detail)} lessons):
+{json.dumps(lessons_detail, indent=1)}
+{org_context}
+STAFFING BASELINE RATIOS — use these as your starting point and adjust based on scope and lessons:
+- 1 Project Quality Manager per project
+- 1 Quality Lead per spread
+- 1 Welding Inspector (CWI) per 15-20 welders on a spread
+- 1 Coating Inspector per spread with coating scope
+- 1 NDE Coordinator per 2-3 NDE crews
+- 1 Document Control Specialist per project (2 for mega-projects)
+- Additional positions for facilities: civil inspector, mechanical inspector, electrical inspector
+
+ADJUSTMENT GUIDELINES:
+- Arctic/Cold Weather: add environmental compliance specialist, increase inspector overlap for weather delays
+- FERC Jurisdictional: add regulatory documentation specialist
+- Sour Service (H2S): add material verification inspector, additional NDE coverage
+- Foreign Material Exclusion: add dedicated FME inspector per spread
+- Class 3/4 Locations: increase CWI coverage ratio, add safety liaison
+- HDD Crossings: add HDD quality specialist per crossing crew
+- Offshore/Water Crossing: add marine/environmental inspector, additional NDE
+
+COST ESTIMATION — use these approximate fully-burdened industry rates:
+- Quality Manager: $180-220/hr
+- Quality Lead: $150-180/hr
+- CWI/Inspector: $120-150/hr
+- NDE Coordinator: $130-160/hr
+- Document Control: $80-110/hr
+- Environmental Compliance: $100-130/hr
+Note: These are ROM estimates for bid purposes only. Assume 45-50 hr work weeks for field positions.
+
+INSTRUCTIONS:
+- Reference specific lessons by ID that justify staffing increases beyond baseline.
+- If matched lessons show recurring issues in a specific discipline, recommend additional headcount in that area and explain why.
+- For each position, specify the phase (Full Duration, Construction Only, Pre-Construction + Construction, Pre-Construction Only, Commissioning, etc.).
+- Calculate peak headcount (maximum staff on-site at any one time) vs total unique positions.
+- Provide a rough-order-of-magnitude cost estimate with monthly burn rate and total.
+- Keep justifications concise (1-2 sentences each).
+
+Respond ONLY in valid JSON with this exact structure:
+{{
+  "summary": "2-3 sentence overview of staffing approach and key assumptions",
+  "positions": [
+    {{
+      "title": "Position Title",
+      "count": 1,
+      "duration_months": 12,
+      "justification": "Why this position is needed at this count",
+      "phase": "Full Duration"
+    }}
+  ],
+  "total_headcount": 10,
+  "peak_headcount": 8,
+  "assumptions": ["List of key assumptions made in developing this estimate"],
+  "lessons_impact": ["How specific lessons influenced the staffing recommendation — e.g. 'Lesson #42 about NDE backlog on Valley Crossing suggests adding a second NDE coordinator when weld counts exceed 2000'"],
+  "cost_estimate": {{
+    "note": "Rough order of magnitude only",
+    "monthly_burn_rate": 150000,
+    "total_estimated": 2700000,
+    "basis": "Explanation of rate assumptions and calculation methodology"
+  }}
+}}"""
+
+    text = _call_anthropic(system_prompt, user_msg, max_tokens=8000)
+    result = _parse_json_response(text)
+
+    if "error" in result:
+        return {
+            "title": "Quality Staffing Estimate",
+            "status": "error",
+            "message": result["error"],
+        }
+
+    if "positions" in result and isinstance(result["positions"], list):
+        print(f">>> Staffing estimate: {len(result['positions'])} positions parsed")
+
+    result["title"] = "Quality Staffing Estimate"
+    return result
 
 
 def _generate_spec_gaps(context, params):
