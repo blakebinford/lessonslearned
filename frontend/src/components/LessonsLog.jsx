@@ -6,7 +6,33 @@ import {
   SEVERITY_COLORS, badge, inputStyle, selectStyle, btnPrimary, btnSecondary, labelStyle,
 } from "../styles";
 
+const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
+const DEFAULT_PAGE_SIZE = 50;
+
 const emptyForm = { title: "", description: "", root_cause: "", recommendation: "", impact: "", work_type: "", phase: "", discipline: "", severity: "Medium", environment: "", project: "", location: "", keywords: "" };
+
+const pgBtn = {
+  minWidth: 32, height: 32, padding: "0 8px", borderRadius: 6,
+  border: "1px solid #334155", background: "transparent", color: "#94a3b8",
+  fontSize: 13, fontWeight: 500, fontFamily: "inherit", cursor: "pointer",
+  display: "inline-flex", alignItems: "center", justifyContent: "center",
+};
+const pgBtnActive = {
+  background: "#2563eb", color: "#fff", border: "1px solid #2563eb", fontWeight: 600,
+};
+
+function getPageNumbers(current, total) {
+  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
+  const pages = [];
+  pages.push(1);
+  if (current > 3) pages.push("...");
+  const start = Math.max(2, current - 1);
+  const end = Math.min(total - 1, current + 1);
+  for (let i = start; i <= end; i++) pages.push(i);
+  if (current < total - 2) pages.push("...");
+  pages.push(total);
+  return pages;
+}
 
 export default function LessonsLog({ org, lessons, lessonsCount, setLessons, setLessonsCount }) {
   const { showToast } = useToast();
@@ -20,17 +46,18 @@ export default function LessonsLog({ org, lessons, lessonsCount, setLessons, set
   const [filterWorkType, setFilterWorkType] = useState("All");
 
   const [lessonsPage, setLessonsPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [lessonsLoading, setLessonsLoading] = useState(false);
   const searchTimerRef = useRef(null);
 
   const importRef = useRef(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState(null);
 
-  const fetchLessons = useCallback(async (page, search, discipline, severity, workType) => {
+  const fetchLessons = useCallback(async (page, search, discipline, severity, workType, size) => {
     if (!org) return;
     setLessonsLoading(true);
     try {
-      const params = { page };
+      const params = { page, page_size: size ?? pageSize };
       if (search) params.search = search;
       if (discipline && discipline !== "All") params.discipline = discipline;
       if (severity && severity !== "All") params.severity = severity;
@@ -43,13 +70,13 @@ export default function LessonsLog({ org, lessons, lessonsCount, setLessons, set
     } finally {
       setLessonsLoading(false);
     }
-  }, [org, setLessons, setLessonsCount]);
+  }, [org, pageSize, setLessons, setLessonsCount]);
 
   const refreshLessons = useCallback(() => {
     return fetchLessons(lessonsPage, searchText, filterDiscipline, filterSeverity, filterWorkType);
   }, [fetchLessons, lessonsPage, searchText, filterDiscipline, filterSeverity, filterWorkType]);
 
-  const totalPages = Math.ceil(lessonsCount / 50) || 1;
+  const totalPages = Math.ceil(lessonsCount / pageSize) || 1;
 
   const handleSearchChange = (val) => {
     setSearchText(val);
@@ -84,6 +111,13 @@ export default function LessonsLog({ org, lessons, lessonsCount, setLessons, set
     fetchLessons(newPage, searchText, filterDiscipline, filterSeverity, filterWorkType);
   };
 
+  const handlePageSizeChange = (newSize) => {
+    const size = Number(newSize);
+    setPageSize(size);
+    setLessonsPage(1);
+    fetchLessons(1, searchText, filterDiscipline, filterSeverity, filterWorkType, size);
+  };
+
   const setField = (k, v) => setForm(prev => ({ ...prev, [k]: v }));
 
   const handleSave = async () => {
@@ -96,7 +130,7 @@ export default function LessonsLog({ org, lessons, lessonsCount, setLessons, set
       } else {
         await api.createLesson({ ...form, organization: org.id });
         setLessonsPage(1);
-        await fetchLessons(1, searchText, filterDiscipline, filterSeverity, filterWorkType);
+        await fetchLessons(1, searchText, filterDiscipline, filterSeverity, filterWorkType, pageSize);
         showToast("Lesson saved", "success");
       }
       setForm(emptyForm);
@@ -246,13 +280,49 @@ export default function LessonsLog({ org, lessons, lessonsCount, setLessons, set
           })}
         </div>
       )}
-      {!lessonsLoading && !showForm && totalPages > 1 && (
-        <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 12, marginTop: 20, paddingTop: 16, borderTop: "1px solid #1e293b" }}>
-          <button onClick={() => handlePageChange(lessonsPage - 1)} disabled={lessonsPage <= 1}
-            style={{ ...btnSecondary, opacity: lessonsPage <= 1 ? 0.4 : 1, cursor: lessonsPage <= 1 ? "default" : "pointer" }}>Previous</button>
-          <span style={{ fontSize: 12, color: "#94a3b8" }}>Page {lessonsPage} of {totalPages}</span>
-          <button onClick={() => handlePageChange(lessonsPage + 1)} disabled={lessonsPage >= totalPages}
-            style={{ ...btnSecondary, opacity: lessonsPage >= totalPages ? 0.4 : 1, cursor: lessonsPage >= totalPages ? "default" : "pointer" }}>Next</button>
+      {!lessonsLoading && !showForm && lessonsCount > 0 && (
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 20, paddingTop: 16, borderTop: "1px solid #1e293b", flexWrap: "wrap", gap: 12 }}>
+          {/* Showing X–Y of Z */}
+          <span style={{ fontSize: 12, color: "#64748b", minWidth: 140 }}>
+            Showing {Math.min((lessonsPage - 1) * pageSize + 1, lessonsCount)}–{Math.min(lessonsPage * pageSize, lessonsCount)} of {lessonsCount}
+          </span>
+
+          {/* Page buttons */}
+          {totalPages > 1 && (
+            <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+              <button onClick={() => handlePageChange(1)} disabled={lessonsPage <= 1}
+                style={{ ...pgBtn, opacity: lessonsPage <= 1 ? 0.3 : 1, cursor: lessonsPage <= 1 ? "default" : "pointer" }}
+                title="First page">{"«"}</button>
+              <button onClick={() => handlePageChange(lessonsPage - 1)} disabled={lessonsPage <= 1}
+                style={{ ...pgBtn, opacity: lessonsPage <= 1 ? 0.3 : 1, cursor: lessonsPage <= 1 ? "default" : "pointer" }}
+                title="Previous page">{"‹"}</button>
+              {getPageNumbers(lessonsPage, totalPages).map((p, i) =>
+                p === "..." ? (
+                  <span key={`ellipsis-${i}`} style={{ color: "#475569", fontSize: 12, padding: "0 4px", userSelect: "none" }}>…</span>
+                ) : (
+                  <button key={p} onClick={() => handlePageChange(p)}
+                    style={{ ...pgBtn, ...(p === lessonsPage ? pgBtnActive : {}) }}>
+                    {p}
+                  </button>
+                )
+              )}
+              <button onClick={() => handlePageChange(lessonsPage + 1)} disabled={lessonsPage >= totalPages}
+                style={{ ...pgBtn, opacity: lessonsPage >= totalPages ? 0.3 : 1, cursor: lessonsPage >= totalPages ? "default" : "pointer" }}
+                title="Next page">{"›"}</button>
+              <button onClick={() => handlePageChange(totalPages)} disabled={lessonsPage >= totalPages}
+                style={{ ...pgBtn, opacity: lessonsPage >= totalPages ? 0.3 : 1, cursor: lessonsPage >= totalPages ? "default" : "pointer" }}
+                title="Last page">{"»"}</button>
+            </div>
+          )}
+
+          {/* Rows per page */}
+          <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 140, justifyContent: "flex-end" }}>
+            <span style={{ fontSize: 12, color: "#64748b" }}>Rows per page:</span>
+            <select value={pageSize} onChange={e => handlePageSizeChange(e.target.value)}
+              style={{ ...selectStyle, width: "auto", padding: "4px 8px", fontSize: 12, minWidth: 52 }}>
+              {PAGE_SIZE_OPTIONS.map(n => <option key={n} value={n}>{n}</option>)}
+            </select>
+          </div>
         </div>
       )}
     </>
