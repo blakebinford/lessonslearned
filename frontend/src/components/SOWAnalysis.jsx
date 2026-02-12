@@ -1,9 +1,9 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import * as api from "../api";
 import { useToast } from "./Toast";
 import {
   SOW_WORK_TYPES, SEVERITY_COLORS, badge,
-  inputStyle, selectStyle, btnPrimary,
+  inputStyle, selectStyle, btnPrimary, btnSecondary,
 } from "../styles";
 
 export default function SOWAnalysis({ org, lessons, lessonsCount }) {
@@ -16,10 +16,35 @@ export default function SOWAnalysis({ org, lessons, lessonsCount }) {
   const [showReport, setShowReport] = useState(false);
   const sowFileRef = useRef(null);
 
+  // History state
+  const [history, setHistory] = useState([]);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+  const [activeHistoryId, setActiveHistoryId] = useState(null);
+
+  const fetchHistory = useCallback(async () => {
+    if (!org) return;
+    setLoadingHistory(true);
+    try {
+      const data = await api.getSOWAnalyses(org.id);
+      setHistory(data.results || data);
+    } catch {
+      // Silently fail - history is supplementary
+    } finally {
+      setLoadingHistory(false);
+    }
+  }, [org]);
+
+  // Fetch history on mount / org change
+  useEffect(() => {
+    fetchHistory();
+  }, [fetchHistory]);
+
   const handleSOWFile = async (file) => {
     setSowFilename(file.name);
     setSowAnalysis(null);
     setShowReport(false);
+    setActiveHistoryId(null);
     try {
       const result = await api.uploadSOWFile(file);
       setSowText(result.text);
@@ -33,14 +58,37 @@ export default function SOWAnalysis({ org, lessons, lessonsCount }) {
     setAnalyzing(true);
     setSowAnalysis(null);
     setShowReport(false);
+    setActiveHistoryId(null);
     try {
       const result = await api.analyzeSOW(org.id, sowText, sowWorkType, sowFilename);
       setSowAnalysis(result.results);
+      setActiveHistoryId(result.id);
+      // Refresh history to include the new analysis
+      fetchHistory();
     } catch (err) {
       showToast("Analysis failed: " + err.message, "error");
     } finally {
       setAnalyzing(false);
     }
+  };
+
+  const loadFromHistory = (item) => {
+    setSowAnalysis(item.results);
+    setSowFilename(item.filename || "");
+    setSowWorkType(item.work_type || "");
+    setSowText(item.sow_text || "");
+    setActiveHistoryId(item.id);
+    setShowReport(false);
+  };
+
+  const startNewAnalysis = () => {
+    setSowText("");
+    setSowFilename("");
+    setSowWorkType("");
+    setSowAnalysis(null);
+    setShowReport(false);
+    setActiveHistoryId(null);
+    if (sowFileRef.current) sowFileRef.current.value = "";
   };
 
   const renderReport = () => {
@@ -108,7 +156,14 @@ export default function SOWAnalysis({ org, lessons, lessonsCount }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ background: "#111827", border: "1px solid #1e293b", borderRadius: 8, padding: 20 }}>
-        <h3 style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 15, fontWeight: 600, color: "#e2e8f0", margin: "0 0 12px" }}>Upload Scope of Work</h3>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+          <h3 style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 15, fontWeight: 600, color: "#e2e8f0", margin: 0 }}>Upload Scope of Work</h3>
+          {sowAnalysis && (
+            <button onClick={startNewAnalysis} style={{ ...btnSecondary, padding: "6px 14px", fontSize: 12 }}>
+              🔄 New Analysis
+            </button>
+          )}
+        </div>
         <div style={{ display: "flex", gap: 10, marginBottom: 12, alignItems: "center", flexWrap: "wrap" }}>
           <div onClick={() => sowFileRef.current?.click()} style={{ padding: "12px 20px", border: "2px dashed #1e293b", borderRadius: 8, background: "#0a0e17", cursor: "pointer" }}>
             <span style={{ fontSize: 13, color: "#94a3b8" }}>📄 {sowFilename || "Upload .docx, .txt, or .pdf"}</span>
@@ -123,6 +178,70 @@ export default function SOWAnalysis({ org, lessons, lessonsCount }) {
           </button>
         </div>
         <textarea value={sowText} onChange={e => setSowText(e.target.value)} rows={6} placeholder="Or paste scope text here..." style={{ ...inputStyle, resize: "vertical" }} />
+      </div>
+
+      {/* Past Analyses History Panel */}
+      <div style={{ background: "#111827", border: "1px solid #1e293b", borderRadius: 8 }}>
+        <button
+          onClick={() => setHistoryOpen(!historyOpen)}
+          style={{
+            width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center",
+            padding: "14px 18px", background: "transparent", border: "none", cursor: "pointer",
+          }}
+        >
+          <span style={{ fontSize: 14, fontWeight: 600, color: "#e2e8f0" }}>
+            📁 Past Analyses {history.length > 0 && <span style={{ fontSize: 12, color: "#64748b", fontWeight: 400 }}>({history.length})</span>}
+          </span>
+          <span style={{ fontSize: 12, color: "#64748b", transition: "transform 0.2s", transform: historyOpen ? "rotate(180deg)" : "rotate(0deg)" }}>▼</span>
+        </button>
+        {historyOpen && (
+          <div style={{ padding: "0 18px 14px", borderTop: "1px solid #1e293b" }}>
+            {loadingHistory ? (
+              <div style={{ padding: "16px 0", textAlign: "center", fontSize: 12, color: "#64748b" }}>Loading history...</div>
+            ) : history.length === 0 ? (
+              <div style={{ padding: "16px 0", textAlign: "center", fontSize: 12, color: "#64748b" }}>No past analyses yet. Run your first analysis above.</div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 10 }}>
+                {history.map((item) => {
+                  const matchCount = item.results?.matches?.length || 0;
+                  const isActive = activeHistoryId === item.id;
+                  const date = new Date(item.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+                  const time = new Date(item.created_at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+                  return (
+                    <div
+                      key={item.id}
+                      onClick={() => loadFromHistory(item)}
+                      style={{
+                        padding: "10px 14px", borderRadius: 6, cursor: "pointer",
+                        background: isActive ? "#1e293b" : "#0a0e17",
+                        border: isActive ? "1px solid #3b82f6" : "1px solid transparent",
+                        transition: "background 0.15s, border-color 0.15s",
+                      }}
+                      onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = "#151d2e"; }}
+                      onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = "#0a0e17"; }}
+                    >
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <span style={{ fontSize: 13, fontWeight: 600, color: isActive ? "#60a5fa" : "#e2e8f0" }}>
+                          {item.filename || "Pasted text"}
+                        </span>
+                        <span style={{ fontSize: 11, color: "#64748b" }}>{date}, {time}</span>
+                      </div>
+                      <div style={{ display: "flex", gap: 10, marginTop: 4 }}>
+                        {item.work_type && (
+                          <span style={{ fontSize: 11, color: "#94a3b8" }}>{item.work_type}</span>
+                        )}
+                        <span style={{ fontSize: 11, color: "#34d399" }}>{matchCount} match{matchCount !== 1 ? "es" : ""}</span>
+                        {(item.results?.gaps?.length || 0) > 0 && (
+                          <span style={{ fontSize: 11, color: "#f87171" }}>{item.results.gaps.length} gap{item.results.gaps.length !== 1 ? "s" : ""}</span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {sowAnalysis && !sowAnalysis.error && (

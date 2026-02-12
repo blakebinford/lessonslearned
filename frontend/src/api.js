@@ -133,6 +133,11 @@ export async function uploadSOWFile(file) {
   return handleResponse(resp);
 }
 
+export async function getSOWAnalyses(orgId) {
+  const resp = await fetch(`${BASE}/sow-analyses/?org=${orgId}`, { headers: getHeaders() });
+  return handleResponse(resp);
+}
+
 export async function analyzeSOW(orgId, sowText, workType, filename) {
   const resp = await fetch(`${BASE}/sow/analyze/`, {
     method: 'POST',
