@@ -81,6 +81,29 @@ export default function SOWAnalysis({ org, lessons, lessonsCount }) {
     setShowReport(false);
   };
 
+  const [exporting, setExporting] = useState(false);
+
+  const handleExportExcel = async () => {
+    if (!activeHistoryId) return;
+    setExporting(true);
+    try {
+      const resp = await api.exportSOWExcel(activeHistoryId);
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      const disposition = resp.headers.get("Content-Disposition") || "";
+      const filenameMatch = disposition.match(/filename="?(.+?)"?$/);
+      a.download = filenameMatch ? filenameMatch[1] : "SOW Analysis.xlsx";
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      showToast("Excel export failed: " + err.message, "error");
+    } finally {
+      setExporting(false);
+    }
+  };
+
   const startNewAnalysis = () => {
     setSowText("");
     setSowFilename("");
@@ -248,7 +271,12 @@ export default function SOWAnalysis({ org, lessons, lessonsCount }) {
         <div style={{ display: "grid", gap: 14 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#111827", border: "1px solid #1e293b", borderRadius: 8, padding: "12px 18px" }}>
             <span style={{ fontSize: 12, color: "#94a3b8" }}>{sowAnalysis.matches?.length || 0} applicable · {sowAnalysis.gaps?.length || 0} gaps</span>
-            <button onClick={() => setShowReport(true)} style={{ ...btnPrimary, padding: "8px 16px" }}>📄 Export for Bid Review</button>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={() => setShowReport(true)} style={{ ...btnPrimary, padding: "8px 16px" }}>📄 Export for Bid Review</button>
+              <button onClick={handleExportExcel} disabled={exporting || !activeHistoryId} style={{ ...btnPrimary, padding: "8px 16px", background: "#217346", opacity: !activeHistoryId ? 0.5 : 1 }}>
+                {exporting ? "Exporting..." : "📊 Export to Excel"}
+              </button>
+            </div>
           </div>
           <div style={{ background: "#111827", border: "1px solid #1e293b", borderRadius: 8, padding: 18 }}>
             <h4 style={{ fontSize: 13, fontWeight: 600, color: "#60a5fa", margin: "0 0 8px" }}>SCOPE SUMMARY</h4>
