@@ -109,7 +109,7 @@ CORS_ALLOW_CREDENTIALS = True
 
 # Anthropic API
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-20250514")
+ANTHROPIC_MODEL = os.environ.get("claude-opus-4-6")
 
 # File upload limits
 FILE_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024  # 10MB
