@@ -1,12 +1,13 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import * as api from "../api";
 import { useToast } from "./Toast";
+import LessonModal from "./LessonModal";
 import {
   SOW_WORK_TYPES, SEVERITY_COLORS, badge,
   inputStyle, selectStyle, btnPrimary, btnSecondary,
 } from "../styles";
 
-export default function SOWAnalysis({ org, lessons, lessonsCount }) {
+export default function SOWAnalysis({ org, lessons, lessonsCount, onLessonsChanged }) {
   const { showToast } = useToast();
   const [sowText, setSowText] = useState("");
   const [sowFilename, setSowFilename] = useState("");
@@ -21,6 +22,7 @@ export default function SOWAnalysis({ org, lessons, lessonsCount }) {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [activeHistoryId, setActiveHistoryId] = useState(null);
+  const [modalLesson, setModalLesson] = useState(null);
 
   const fetchHistory = useCallback(async () => {
     if (!org) return;
@@ -299,7 +301,13 @@ export default function SOWAnalysis({ org, lessons, lessonsCount }) {
                       {group.map((m, i) => {
                         const lesson = lessons.find(l => l.id === m.lessonId);
                         return (
-                          <div key={i} style={{ padding: "12px 14px", background: "#0a0e17", borderRadius: 6, borderLeft: `3px solid ${gc.text}` }}>
+                          <div
+                            key={i}
+                            onClick={() => lesson && setModalLesson(lesson)}
+                            style={{ padding: "12px 14px", background: "#0a0e17", borderRadius: 6, borderLeft: `3px solid ${gc.text}`, cursor: lesson ? "pointer" : "default", transition: "background 0.15s" }}
+                            onMouseEnter={e => { if (lesson) e.currentTarget.style.background = "#0f1629"; }}
+                            onMouseLeave={e => { if (lesson) e.currentTarget.style.background = "#0a0e17"; }}
+                          >
                             <span style={{ fontSize: 13, fontWeight: 600, color: "#e2e8f0" }}>{lesson?.title || m.lessonId}</span>
                             <p style={{ fontSize: 12, color: "#94a3b8", margin: "6px 0 0", lineHeight: 1.5 }}>{m.reason}</p>
                             {lesson?.recommendation && <p style={{ fontSize: 12, color: "#60a5fa", margin: "6px 0 0" }}>💡 {lesson.recommendation}</p>}
@@ -332,6 +340,11 @@ export default function SOWAnalysis({ org, lessons, lessonsCount }) {
           )}
         </div>
       )}
+      <LessonModal
+        lesson={modalLesson}
+        onClose={() => setModalLesson(null)}
+        onSaved={() => { setModalLesson(null); if (onLessonsChanged) onLessonsChanged(); }}
+      />
     </div>
   );
 }

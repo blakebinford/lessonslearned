@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback } from "react";
 import * as api from "../api";
 import { useToast } from "./Toast";
+import LessonModal from "./LessonModal";
 import {
   WORK_TYPES, PHASES, DISCIPLINES, SEVERITIES, ENVIRONMENTS,
   SEVERITY_COLORS, badge, inputStyle, selectStyle, btnPrimary, btnSecondary, labelStyle,
@@ -52,6 +53,7 @@ export default function LessonsLog({ org, lessons, lessonsCount, setLessons, set
 
   const importRef = useRef(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState(null);
+  const [modalLesson, setModalLesson] = useState(null);
 
   const fetchLessons = useCallback(async (page, search, discipline, severity, workType, size) => {
     if (!org) return;
@@ -250,7 +252,12 @@ export default function LessonsLog({ org, lessons, lessonsCount, setLessons, set
               <div key={l.id} style={{ background: "#111827", border: "1px solid #1e293b", borderRadius: 8, padding: 16 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start", marginBottom: 8 }}>
                   <div style={{ flex: 1 }}>
-                    <h4 style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 14, fontWeight: 600, color: "#e2e8f0", margin: "0 0 6px" }}>{l.title}</h4>
+                    <h4
+                      onClick={() => setModalLesson(l)}
+                      style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 14, fontWeight: 600, color: "#e2e8f0", margin: "0 0 6px", cursor: "pointer", transition: "color 0.15s" }}
+                      onMouseEnter={e => e.currentTarget.style.color = "#60a5fa"}
+                      onMouseLeave={e => e.currentTarget.style.color = "#e2e8f0"}
+                    >{l.title}</h4>
                     <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                       <span style={badge(sev)}>{l.severity}</span>
                       {l.discipline && <span style={badge({ bg: "#1a1a2e", text: "#93c5fd", border: "#1e40af" })}>{l.discipline}</span>}
@@ -325,6 +332,11 @@ export default function LessonsLog({ org, lessons, lessonsCount, setLessons, set
           </div>
         </div>
       )}
+      <LessonModal
+        lesson={modalLesson}
+        onClose={() => setModalLesson(null)}
+        onSaved={() => { setModalLesson(null); refreshLessons(); }}
+      />
     </>
   );
 }

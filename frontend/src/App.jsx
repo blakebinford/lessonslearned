@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import * as api from "./api";
 import { globalCSS } from "./styles";
 import { ToastProvider, useToast } from "./components/Toast";
@@ -38,6 +38,17 @@ function Dashboard({ user, onLogout }) {
     })();
   }, []);
 
+  const refreshLessons = useCallback(async () => {
+    if (!org) return;
+    try {
+      const data = await api.getLessons(org.id);
+      setLessons(data.results || []);
+      setLessonsCount(data.count || 0);
+    } catch (err) {
+      console.error("Refresh lessons failed:", err);
+    }
+  }, [org]);
+
   if (loading) return <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh", color: "#64748b" }}>Loading...</div>;
 
   return (
@@ -62,7 +73,7 @@ function Dashboard({ user, onLogout }) {
           setLessonsCount={setLessonsCount}
         />
       )}
-      {activeTab === "sow" && <SOWAnalysis org={org} lessons={lessons} lessonsCount={lessonsCount} />}
+      {activeTab === "sow" && <SOWAnalysis org={org} lessons={lessons} lessonsCount={lessonsCount} onLessonsChanged={refreshLessons} />}
       {activeTab === "chat" && <ChatAnalyst org={org} lessonsCount={lessonsCount} />}
     </div>
   );
