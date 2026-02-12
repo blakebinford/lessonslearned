@@ -28,6 +28,29 @@ export default function SOWAnalysis({ org, lessons, lessonsCount, onLessonsChang
   const [deliverables, setDeliverables] = useState({});
   const [deliverablesLoading, setDeliverablesLoading] = useState({});
 
+  // Staffing estimate form state
+  const [staffingFormOpen, setStaffingFormOpen] = useState(false);
+  const [staffingParams, setStaffingParams] = useState({
+    pipe_diameter: "",
+    weld_count: "",
+    pipeline_mileage: "",
+    num_spreads: 1,
+    facilities_count: 0,
+    duration_months: "",
+    special_conditions: [],
+  });
+
+  const PIPE_DIAMETERS = ['4"', '6"', '8"', '10"', '12"', '16"', '20"', '24"', '30"', '36"', '42"', '48"'];
+  const SPECIAL_CONDITIONS = [
+    "Arctic/Cold Weather",
+    "Sour Service",
+    "FERC Jurisdictional",
+    "Foreign Material Exclusion",
+    "Class 3/4 Locations",
+    "HDD Crossings",
+    "Offshore/Water Crossing",
+  ];
+
   const DELIVERABLE_CARDS = [
     { type: "risk_register", icon: "\u26A0\uFE0F", label: "Risk Register", desc: "Generate project risk register from applicable lessons" },
     { type: "staffing_estimate", icon: "\uD83D\uDC65", label: "Quality Staffing", desc: "Estimate quality staffing requirements for scope" },
@@ -35,11 +58,11 @@ export default function SOWAnalysis({ org, lessons, lessonsCount, onLessonsChang
     { type: "executive_narrative", icon: "\uD83D\uDCDD", label: "Executive Summary", desc: "One-page narrative for bid review" },
   ];
 
-  const handleGenerateDeliverable = async (type) => {
+  const handleGenerateDeliverable = async (type, params = {}) => {
     if (!activeHistoryId) return;
     setDeliverablesLoading((prev) => ({ ...prev, [type]: true }));
     try {
-      const result = await api.generateDeliverable(activeHistoryId, type);
+      const result = await api.generateDeliverable(activeHistoryId, type, params);
       setDeliverables((prev) => ({ ...prev, [type]: result.content }));
       // Also update sowAnalysis so it persists in local state
       setSowAnalysis((prev) => {
@@ -49,11 +72,34 @@ export default function SOWAnalysis({ org, lessons, lessonsCount, onLessonsChang
         updated.deliverables[type] = result.content;
         return updated;
       });
+      if (type === "staffing_estimate") setStaffingFormOpen(false);
     } catch (err) {
       showToast(`Failed to generate deliverable: ${err.message}`, "error");
     } finally {
       setDeliverablesLoading((prev) => ({ ...prev, [type]: false }));
     }
+  };
+
+  const handleGenerateStaffing = () => {
+    const params = {
+      pipe_diameter: staffingParams.pipe_diameter,
+      weld_count: staffingParams.weld_count ? Number(staffingParams.weld_count) : null,
+      pipeline_mileage: staffingParams.pipeline_mileage ? Number(staffingParams.pipeline_mileage) : null,
+      num_spreads: Number(staffingParams.num_spreads) || 1,
+      facilities_count: Number(staffingParams.facilities_count) || 0,
+      duration_months: staffingParams.duration_months ? Number(staffingParams.duration_months) : null,
+      special_conditions: staffingParams.special_conditions,
+    };
+    handleGenerateDeliverable("staffing_estimate", params);
+  };
+
+  const toggleSpecialCondition = (condition) => {
+    setStaffingParams((prev) => {
+      const conditions = prev.special_conditions.includes(condition)
+        ? prev.special_conditions.filter((c) => c !== condition)
+        : [...prev.special_conditions, condition];
+      return { ...prev, special_conditions: conditions };
+    });
   };
 
   const handleCopyDeliverable = (content) => {
@@ -73,6 +119,23 @@ export default function SOWAnalysis({ org, lessons, lessonsCount, onLessonsChang
     const tsv = [header, ...rows].join("\n");
     navigator.clipboard.writeText(tsv).then(
       () => showToast("Copied as table — paste into Excel or Word", "success"),
+      () => showToast("Failed to copy", "error")
+    );
+  };
+
+  const handleCopyStaffingTable = (content) => {
+    if (!content?.positions) return;
+    const header = ["Position", "Count", "Duration (months)", "Phase", "Justification"].join("\t");
+    const rows = content.positions.map(p =>
+      [p.title, p.count, p.duration_months, p.phase, p.justification].join("\t")
+    );
+    const summary = content.summary ? `Summary: ${content.summary}\n\n` : "";
+    const costNote = content.cost_estimate
+      ? `\n\nCost Estimate (ROM — For Bid Purposes Only)\nMonthly Burn Rate: $${(content.cost_estimate.monthly_burn_rate || 0).toLocaleString()}\nTotal Estimated: $${(content.cost_estimate.total_estimated || 0).toLocaleString()}\nBasis: ${content.cost_estimate.basis || ""}`
+      : "";
+    const tsv = summary + [header, ...rows].join("\n") + `\n\nTotal Headcount: ${content.total_headcount || ""}\nPeak Headcount: ${content.peak_headcount || ""}` + costNote;
+    navigator.clipboard.writeText(tsv).then(
+      () => showToast("Copied staffing estimate — paste into Excel or Word", "success"),
       () => showToast("Failed to copy", "error")
     );
   };
@@ -177,6 +240,249 @@ export default function SOWAnalysis({ org, lessons, lessonsCount, onLessonsChang
             </tbody>
           </table>
         </div>
+      </div>
+    );
+  };
+
+  const [lessonsImpactOpen, setLessonsImpactOpen] = useState(false);
+
+  const renderStaffingForm = () => {
+    const fieldLabel = { fontSize: 11, fontWeight: 600, color: "#94a3b8", marginBottom: 4, display: "block" };
+    const fieldInput = { ...inputStyle, padding: "7px 10px", fontSize: 12 };
+    return (
+      <div style={{ padding: "14px 16px", borderTop: "1px solid #1e293b", background: "#0f1629" }}>
+        <div style={{ fontSize: 12, fontWeight: 600, color: "#a78bfa", marginBottom: 12 }}>Staffing Estimate Parameters</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 12 }}>
+          <div>
+            <label style={fieldLabel}>Pipe Diameter</label>
+            <select
+              value={staffingParams.pipe_diameter}
+              onChange={(e) => setStaffingParams((p) => ({ ...p, pipe_diameter: e.target.value }))}
+              style={{ ...selectStyle, padding: "7px 10px", fontSize: 12, width: "100%" }}
+            >
+              <option value="">Select...</option>
+              {PIPE_DIAMETERS.map((d) => <option key={d} value={d}>{d}</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={fieldLabel}>Est. Weld Count</label>
+            <input
+              type="number"
+              min="0"
+              placeholder="e.g. 2500"
+              value={staffingParams.weld_count}
+              onChange={(e) => setStaffingParams((p) => ({ ...p, weld_count: e.target.value }))}
+              style={fieldInput}
+            />
+          </div>
+          <div>
+            <label style={fieldLabel}>Pipeline Mileage</label>
+            <input
+              type="number"
+              min="0"
+              step="0.1"
+              placeholder="e.g. 45.5"
+              value={staffingParams.pipeline_mileage}
+              onChange={(e) => setStaffingParams((p) => ({ ...p, pipeline_mileage: e.target.value }))}
+              style={fieldInput}
+            />
+          </div>
+          <div>
+            <label style={fieldLabel}>Number of Spreads</label>
+            <input
+              type="number"
+              min="1"
+              value={staffingParams.num_spreads}
+              onChange={(e) => setStaffingParams((p) => ({ ...p, num_spreads: e.target.value }))}
+              style={fieldInput}
+            />
+          </div>
+          <div>
+            <label style={fieldLabel}>Facilities Count</label>
+            <input
+              type="number"
+              min="0"
+              placeholder="Compressor/meter stations"
+              value={staffingParams.facilities_count}
+              onChange={(e) => setStaffingParams((p) => ({ ...p, facilities_count: e.target.value }))}
+              style={fieldInput}
+            />
+          </div>
+          <div>
+            <label style={fieldLabel}>Duration (months)</label>
+            <input
+              type="number"
+              min="1"
+              placeholder="e.g. 18"
+              value={staffingParams.duration_months}
+              onChange={(e) => setStaffingParams((p) => ({ ...p, duration_months: e.target.value }))}
+              style={fieldInput}
+            />
+          </div>
+        </div>
+        <div style={{ marginBottom: 12 }}>
+          <label style={fieldLabel}>Special Conditions</label>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {SPECIAL_CONDITIONS.map((cond) => {
+              const checked = staffingParams.special_conditions.includes(cond);
+              return (
+                <label
+                  key={cond}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 5,
+                    padding: "5px 10px", borderRadius: 4, fontSize: 11, cursor: "pointer",
+                    background: checked ? "#1e293b" : "#0a0e17",
+                    border: checked ? "1px solid #6366f1" : "1px solid #1e293b",
+                    color: checked ? "#c7d2fe" : "#94a3b8",
+                    transition: "all 0.15s",
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => toggleSpecialCondition(cond)}
+                    style={{ display: "none" }}
+                  />
+                  <span style={{ width: 14, height: 14, borderRadius: 3, border: checked ? "1px solid #6366f1" : "1px solid #475569", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, background: checked ? "#4f46e5" : "transparent", color: "#fff", flexShrink: 0 }}>
+                    {checked ? "\u2713" : ""}
+                  </span>
+                  {cond}
+                </label>
+              );
+            })}
+          </div>
+        </div>
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+          <button
+            onClick={() => setStaffingFormOpen(false)}
+            style={{ ...btnSecondary, padding: "6px 14px", fontSize: 11 }}
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleGenerateStaffing}
+            disabled={deliverablesLoading.staffing_estimate}
+            style={{ ...btnPrimary, padding: "6px 16px", fontSize: 11, opacity: deliverablesLoading.staffing_estimate ? 0.6 : 1 }}
+          >
+            {deliverablesLoading.staffing_estimate ? "Generating..." : "Generate Estimate"}
+          </button>
+        </div>
+      </div>
+    );
+  };
+
+  const renderStaffingEstimate = (content) => {
+    if (!content?.positions) return null;
+    return (
+      <div style={{ fontSize: 12 }}>
+        {content.summary && (
+          <p style={{ color: "#cbd5e1", lineHeight: 1.6, margin: "0 0 14px", padding: "10px 12px", background: "#111827", borderRadius: 6, borderLeft: "3px solid #a78bfa" }}>
+            {content.summary}
+          </p>
+        )}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+          <div style={{ display: "flex", gap: 14 }}>
+            <span style={{ fontSize: 11, color: "#94a3b8" }}>
+              Total: <strong style={{ color: "#e2e8f0" }}>{content.total_headcount}</strong>
+            </span>
+            <span style={{ fontSize: 11, color: "#94a3b8" }}>
+              Peak: <strong style={{ color: "#fbbf24" }}>{content.peak_headcount}</strong>
+            </span>
+          </div>
+          <button
+            onClick={() => handleCopyStaffingTable(content)}
+            style={{ background: "none", border: "1px solid #334155", borderRadius: 4, padding: "5px 12px", cursor: "pointer", fontSize: 11, color: "#94a3b8" }}
+          >
+            {"\uD83D\uDCCB"} Copy
+          </button>
+        </div>
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+            <thead>
+              <tr>
+                {["Position", "Count", "Duration", "Phase", "Justification"].map(h => (
+                  <th key={h} style={{ background: "#1e293b", color: "#e2e8f0", padding: "8px 10px", textAlign: "left", fontSize: 10, fontWeight: 600, whiteSpace: "nowrap", borderBottom: "2px solid #334155" }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {content.positions.map((pos, i) => {
+                const isPeak = pos.count > 1;
+                return (
+                  <tr
+                    key={i}
+                    style={{
+                      background: isPeak ? "#1a1a2e" : i % 2 === 0 ? "#0a0e17" : "#0f1629",
+                      borderLeft: isPeak ? "3px solid #fbbf24" : "3px solid transparent",
+                    }}
+                  >
+                    <td style={{ padding: "8px 10px", borderBottom: "1px solid #1e293b", color: "#e2e8f0", fontWeight: 600 }}>{pos.title}</td>
+                    <td style={{ padding: "8px 10px", borderBottom: "1px solid #1e293b", color: isPeak ? "#fbbf24" : "#cbd5e1", textAlign: "center", fontWeight: isPeak ? 700 : 400 }}>{pos.count}</td>
+                    <td style={{ padding: "8px 10px", borderBottom: "1px solid #1e293b", color: "#cbd5e1", textAlign: "center" }}>{pos.duration_months} mo</td>
+                    <td style={{ padding: "8px 10px", borderBottom: "1px solid #1e293b", color: "#94a3b8", whiteSpace: "nowrap" }}>{pos.phase}</td>
+                    <td style={{ padding: "8px 10px", borderBottom: "1px solid #1e293b", color: "#94a3b8", maxWidth: 280 }}>{pos.justification}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {content.assumptions?.length > 0 && (
+          <div style={{ marginTop: 14 }}>
+            <div style={{ fontSize: 10, fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>Assumptions</div>
+            <ul style={{ margin: 0, paddingLeft: 16, color: "#94a3b8", fontSize: 11, lineHeight: 1.8 }}>
+              {content.assumptions.map((a, i) => <li key={i}>{a}</li>)}
+            </ul>
+          </div>
+        )}
+
+        {content.cost_estimate && (
+          <div style={{ marginTop: 14, padding: "12px 14px", background: "#111827", borderRadius: 6, border: "1px solid #334155" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+              <span style={{ fontSize: 10, fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: 1 }}>Cost Estimate</span>
+              <span style={{ fontSize: 9, color: "#f87171", fontWeight: 700, background: "#1c1017", padding: "3px 8px", borderRadius: 3, border: "1px solid #7f1d1d" }}>ROM — For Bid Purposes Only</span>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 8 }}>
+              <div>
+                <div style={{ fontSize: 10, color: "#64748b" }}>Monthly Burn Rate</div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: "#34d399" }}>${(content.cost_estimate.monthly_burn_rate || 0).toLocaleString()}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 10, color: "#64748b" }}>Total Estimated</div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: "#34d399" }}>${(content.cost_estimate.total_estimated || 0).toLocaleString()}</div>
+              </div>
+            </div>
+            {content.cost_estimate.basis && (
+              <p style={{ fontSize: 11, color: "#94a3b8", margin: 0, lineHeight: 1.5 }}>{content.cost_estimate.basis}</p>
+            )}
+          </div>
+        )}
+
+        {content.lessons_impact?.length > 0 && (
+          <div style={{ marginTop: 14 }}>
+            <button
+              onClick={() => setLessonsImpactOpen(!lessonsImpactOpen)}
+              style={{
+                width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center",
+                padding: "8px 12px", background: "#111827", border: "1px solid #1e293b", borderRadius: 6,
+                cursor: "pointer", color: "#94a3b8", fontSize: 11, fontWeight: 600,
+              }}
+            >
+              <span>Lessons that influenced this estimate ({content.lessons_impact.length})</span>
+              <span style={{ transition: "transform 0.2s", transform: lessonsImpactOpen ? "rotate(180deg)" : "rotate(0deg)" }}>{"\u25BC"}</span>
+            </button>
+            {lessonsImpactOpen && (
+              <div style={{ padding: "10px 12px", background: "#111827", borderTop: "none", border: "1px solid #1e293b", borderTopWidth: 0, borderRadius: "0 0 6px 6px" }}>
+                {content.lessons_impact.map((impact, i) => (
+                  <div key={i} style={{ padding: "6px 0", borderBottom: i < content.lessons_impact.length - 1 ? "1px solid #1e293b" : "none", fontSize: 11, color: "#cbd5e1", lineHeight: 1.5 }}>
+                    {impact}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     );
   };
@@ -510,8 +816,9 @@ export default function SOWAnalysis({ org, lessons, lessonsCount, onLessonsChang
               {DELIVERABLE_CARDS.map((card) => {
                 const content = deliverables[card.type];
                 const loading = deliverablesLoading[card.type];
+                const isStaffing = card.type === "staffing_estimate";
                 return (
-                  <div key={card.type} style={{ background: "#0a0e17", borderRadius: 8, border: content ? "1px solid #334155" : "1px solid #1e293b", overflow: "hidden" }}>
+                  <div key={card.type} style={{ background: "#0a0e17", borderRadius: 8, border: content ? "1px solid #334155" : "1px solid #1e293b", overflow: "hidden", gridColumn: isStaffing && (staffingFormOpen || (content?.positions)) ? "1 / -1" : undefined }}>
                     <div style={{ padding: "14px 16px" }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
                         <div>
@@ -519,7 +826,7 @@ export default function SOWAnalysis({ org, lessons, lessonsCount, onLessonsChang
                           <span style={{ fontSize: 13, fontWeight: 600, color: "#e2e8f0" }}>{card.label}</span>
                         </div>
                         <div style={{ display: "flex", gap: 6 }}>
-                          {content && (
+                          {content && !isStaffing && (
                             <button
                               onClick={() => handleCopyDeliverable(content)}
                               style={{ background: "none", border: "1px solid #334155", borderRadius: 4, padding: "4px 8px", cursor: "pointer", fontSize: 11, color: "#94a3b8" }}
@@ -529,7 +836,7 @@ export default function SOWAnalysis({ org, lessons, lessonsCount, onLessonsChang
                             </button>
                           )}
                           <button
-                            onClick={() => handleGenerateDeliverable(card.type)}
+                            onClick={() => isStaffing ? setStaffingFormOpen(!staffingFormOpen) : handleGenerateDeliverable(card.type)}
                             disabled={loading || !activeHistoryId}
                             style={{
                               ...btnPrimary,
@@ -552,6 +859,7 @@ export default function SOWAnalysis({ org, lessons, lessonsCount, onLessonsChang
                       </div>
                       <p style={{ fontSize: 12, color: "#64748b", margin: 0, lineHeight: 1.4 }}>{card.desc}</p>
                     </div>
+                    {isStaffing && staffingFormOpen && !loading && renderStaffingForm()}
                     {content && (
                       <div style={{ padding: "12px 16px", borderTop: "1px solid #1e293b", background: "#0f1629" }}>
                         {content.status === "stub" ? (
@@ -566,6 +874,8 @@ export default function SOWAnalysis({ org, lessons, lessonsCount, onLessonsChang
                           </div>
                         ) : card.type === "risk_register" && content.risks ? (
                           renderRiskRegister(content)
+                        ) : isStaffing && content.positions ? (
+                          renderStaffingEstimate(content)
                         ) : (
                           <pre style={{ fontSize: 12, color: "#cbd5e1", margin: 0, whiteSpace: "pre-wrap", lineHeight: 1.6 }}>
                             {typeof content === "string" ? content : JSON.stringify(content, null, 2)}
