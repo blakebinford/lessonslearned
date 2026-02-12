@@ -69,6 +69,55 @@ class LessonViewSet(viewsets.ModelViewSet):
         org = get_object_or_404(Organization, id=org_id, created_by=self.request.user)
         serializer.save(organization=org, created_by=self.request.user)
 
+    @action(detail=False, methods=["post"], url_path="bulk-delete")
+    def bulk_delete(self, request):
+        """Delete multiple lessons by ID. All must belong to the user's org."""
+        ids = request.data.get("ids", [])
+        if not ids or not isinstance(ids, list):
+            return Response({"error": "ids list is required"}, status=400)
+        qs = Lesson.objects.filter(
+            id__in=ids, organization__created_by=request.user
+        )
+        found = set(qs.values_list("id", flat=True))
+        missing = set(ids) - found
+        if missing:
+            return Response(
+                {"error": f"Lessons not found or not authorized: {sorted(missing)}"},
+                status=403,
+            )
+        count = qs.count()
+        qs.delete()
+        return Response({"deleted": count})
+
+    @action(detail=False, methods=["post"], url_path="bulk-update")
+    def bulk_update(self, request):
+        """Update fields on multiple lessons. All must belong to the user's org."""
+        ids = request.data.get("ids", [])
+        fields = request.data.get("fields", {})
+        if not ids or not isinstance(ids, list):
+            return Response({"error": "ids list is required"}, status=400)
+        if not fields or not isinstance(fields, dict):
+            return Response({"error": "fields dict is required"}, status=400)
+        allowed = {"severity", "work_type", "discipline", "phase", "environment"}
+        invalid = set(fields.keys()) - allowed
+        if invalid:
+            return Response(
+                {"error": f"Cannot bulk-update fields: {sorted(invalid)}"},
+                status=400,
+            )
+        qs = Lesson.objects.filter(
+            id__in=ids, organization__created_by=request.user
+        )
+        found = set(qs.values_list("id", flat=True))
+        missing = set(ids) - found
+        if missing:
+            return Response(
+                {"error": f"Lessons not found or not authorized: {sorted(missing)}"},
+                status=403,
+            )
+        count = qs.update(**fields)
+        return Response({"updated": count})
+
     @action(detail=False, methods=["post"], parser_classes=[MultiPartParser, FormParser])
     def import_file(self, request):
         """Import lessons from an XLSX or CSV file."""

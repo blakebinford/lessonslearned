@@ -109,6 +109,24 @@ export async function deleteLesson(id) {
   return true;
 }
 
+export async function bulkDeleteLessons(ids) {
+  const resp = await fetch(`${BASE}/lessons/bulk-delete/`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify({ ids }),
+  });
+  return handleResponse(resp);
+}
+
+export async function bulkUpdateLessons(ids, fields) {
+  const resp = await fetch(`${BASE}/lessons/bulk-update/`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify({ ids, fields }),
+  });
+  return handleResponse(resp);
+}
+
 export async function getLessonStats(orgId) {
   const resp = await fetch(`${BASE}/lessons/stats/?org=${orgId}`, { headers: getHeaders() });
   return handleResponse(resp);

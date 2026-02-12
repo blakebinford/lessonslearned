@@ -56,6 +56,11 @@ export default function LessonsLog({ org, lessons, lessonsCount, setLessons, set
   const [modalLesson, setModalLesson] = useState(null);
   const [stats, setStats] = useState(null);
 
+  // Bulk selection state
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
+  const [bulkActionLoading, setBulkActionLoading] = useState(false);
+
   const fetchStats = useCallback(async () => {
     if (!org) return;
     try {
@@ -189,6 +194,89 @@ export default function LessonsLog({ org, lessons, lessonsCount, setLessons, set
     }
   };
 
+  // Bulk selection helpers
+  const toggleSelect = (id) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (lessons.length > 0 && lessons.every(l => selectedIds.has(l.id))) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(lessons.map(l => l.id)));
+    }
+  };
+
+  const allOnPageSelected = lessons.length > 0 && lessons.every(l => selectedIds.has(l.id));
+
+  // Clear selection when lessons change (page, filter, etc.)
+  useEffect(() => {
+    setSelectedIds(new Set());
+  }, [lessonsPage, filterDiscipline, filterSeverity, filterWorkType, searchText]);
+
+  // Bulk delete
+  const handleBulkDelete = async () => {
+    setBulkActionLoading(true);
+    try {
+      const ids = Array.from(selectedIds);
+      const result = await api.bulkDeleteLessons(ids);
+      setSelectedIds(new Set());
+      setShowBulkDeleteConfirm(false);
+      await refreshLessons();
+      showToast(`Deleted ${result.deleted} lesson${result.deleted !== 1 ? "s" : ""}`, "success");
+    } catch (err) {
+      showToast("Bulk delete failed: " + err.message, "error");
+    } finally {
+      setBulkActionLoading(false);
+    }
+  };
+
+  // Bulk update
+  const handleBulkUpdate = async (fields) => {
+    setBulkActionLoading(true);
+    try {
+      const ids = Array.from(selectedIds);
+      const result = await api.bulkUpdateLessons(ids, fields);
+      setSelectedIds(new Set());
+      await refreshLessons();
+      const fieldName = Object.keys(fields)[0].replace("_", " ");
+      showToast(`Updated ${fieldName} on ${result.updated} lesson${result.updated !== 1 ? "s" : ""}`, "success");
+    } catch (err) {
+      showToast("Bulk update failed: " + err.message, "error");
+    } finally {
+      setBulkActionLoading(false);
+    }
+  };
+
+  // Export selected as CSV
+  const handleExportSelected = () => {
+    const selected = lessons.filter(l => selectedIds.has(l.id));
+    if (selected.length === 0) return;
+    const headers = ["Title", "Description", "Root Cause", "Recommendation", "Impact", "Severity", "Work Type", "Discipline", "Phase", "Environment", "Project", "Location", "Keywords"];
+    const keys = ["title", "description", "root_cause", "recommendation", "impact", "severity", "work_type", "discipline", "phase", "environment", "project", "location", "keywords"];
+    const escape = (v) => {
+      const s = String(v ?? "");
+      return s.includes(",") || s.includes('"') || s.includes("\n") ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const rows = [headers.join(",")];
+    for (const l of selected) {
+      rows.push(keys.map(k => escape(l[k])).join(","));
+    }
+    const blob = new Blob([rows.join("\n")], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "lessons-export.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast(`Exported ${selected.length} lesson${selected.length !== 1 ? "s" : ""} to CSV`, "success");
+  };
+
   const hasActiveFilters = searchText || filterDiscipline !== "All" || filterSeverity !== "All" || filterWorkType !== "All";
 
   const renderForm = () => (
@@ -303,14 +391,75 @@ export default function LessonsLog({ org, lessons, lessonsCount, setLessons, set
       <input ref={importRef} type="file" accept=".xlsx,.xls,.xlsm,.csv" style={{ display: "none" }}
         onChange={e => { const f = e.target.files?.[0]; if (f) handleImport(f); e.target.value = ""; }} />
       {!showForm && (lessonsCount > 0 || hasActiveFilters) && (
-        <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
+        <div style={{ display: "flex", gap: 8, marginBottom: selectedIds.size > 0 ? 0 : 16, flexWrap: "wrap", alignItems: "center" }}>
           <button onClick={() => setShowForm(true)} style={btnPrimary}>+ New Lesson</button>
           <button onClick={() => importRef.current?.click()} style={btnSecondary}>📥 Import XLSX</button>
+          <label style={{ display: "flex", alignItems: "center", gap: 5, cursor: "pointer", fontSize: 12, color: "#94a3b8", userSelect: "none" }}>
+            <input type="checkbox" checked={allOnPageSelected} onChange={toggleSelectAll}
+              style={{ accentColor: "#2563eb", width: 15, height: 15, cursor: "pointer" }} />
+            Select All
+          </label>
           <input value={searchText} onChange={e => handleSearchChange(e.target.value)} placeholder="Search..." style={{ ...inputStyle, width: 180, padding: "8px 12px" }} />
           <select value={filterDiscipline} onChange={e => handleDisciplineChange(e.target.value)} style={{ ...selectStyle, width: "auto", padding: "8px 10px" }}><option value="All">All Disciplines</option>{DISCIPLINES.map(d => <option key={d}>{d}</option>)}</select>
           <select value={filterSeverity} onChange={e => handleSeverityChange(e.target.value)} style={{ ...selectStyle, width: "auto", padding: "8px 10px" }}><option value="All">All Severities</option>{SEVERITIES.map(s => <option key={s}>{s}</option>)}</select>
           <select value={filterWorkType} onChange={e => handleWorkTypeChange(e.target.value)} style={{ ...selectStyle, width: "auto", padding: "8px 10px" }}><option value="All">All Work Types</option>{WORK_TYPES.map(w => <option key={w}>{w}</option>)}</select>
           <span style={{ fontSize: 11, color: "#475569", marginLeft: "auto" }}>{lessonsCount} result{lessonsCount !== 1 ? "s" : ""}</span>
+        </div>
+      )}
+      {/* Bulk action bar */}
+      {!showForm && selectedIds.size > 0 && (
+        <div style={{
+          display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap",
+          padding: "10px 16px", marginBottom: 16, marginTop: 8,
+          background: "#1e293b", borderRadius: 8, border: "1px solid #334155",
+        }}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: "#e2e8f0", marginRight: 4 }}>
+            {selectedIds.size} selected
+          </span>
+          <button
+            onClick={() => setShowBulkDeleteConfirm(true)}
+            disabled={bulkActionLoading}
+            style={{ padding: "6px 14px", borderRadius: 6, border: "1px solid #991b1b", background: "#7f1d1d", color: "#fca5a5", fontSize: 12, fontWeight: 600, fontFamily: "inherit", cursor: "pointer" }}
+          >
+            Delete Selected
+          </button>
+          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+            <span style={{ fontSize: 11, color: "#64748b" }}>Severity:</span>
+            <select
+              value=""
+              onChange={e => { if (e.target.value) handleBulkUpdate({ severity: e.target.value }); }}
+              disabled={bulkActionLoading}
+              style={{ ...selectStyle, width: "auto", padding: "5px 8px", fontSize: 12 }}
+            >
+              <option value="">Set...</option>
+              {SEVERITIES.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+            <span style={{ fontSize: 11, color: "#64748b" }}>Work Type:</span>
+            <select
+              value=""
+              onChange={e => { if (e.target.value) handleBulkUpdate({ work_type: e.target.value }); }}
+              disabled={bulkActionLoading}
+              style={{ ...selectStyle, width: "auto", padding: "5px 8px", fontSize: 12 }}
+            >
+              <option value="">Set...</option>
+              {WORK_TYPES.map(w => <option key={w} value={w}>{w}</option>)}
+            </select>
+          </div>
+          <button
+            onClick={handleExportSelected}
+            disabled={bulkActionLoading}
+            style={{ ...btnSecondary, padding: "6px 14px", fontSize: 12 }}
+          >
+            Export Selected
+          </button>
+          <button
+            onClick={() => setSelectedIds(new Set())}
+            style={{ marginLeft: "auto", background: "none", border: "none", color: "#64748b", fontSize: 12, cursor: "pointer", fontFamily: "inherit", textDecoration: "underline" }}
+          >
+            Clear selection
+          </button>
         </div>
       )}
       {lessonsLoading && !showForm && (
@@ -335,7 +484,14 @@ export default function LessonsLog({ org, lessons, lessonsCount, setLessons, set
           {lessons.map(l => {
             const sev = SEVERITY_COLORS[l.severity] || SEVERITY_COLORS.Medium;
             return (
-              <div key={l.id} style={{ background: "#111827", border: "1px solid #1e293b", borderRadius: 8, padding: 16 }}>
+              <div key={l.id} style={{ background: "#111827", border: selectedIds.has(l.id) ? "1px solid #2563eb" : "1px solid #1e293b", borderRadius: 8, padding: 16, display: "flex", gap: 12, alignItems: "start" }}>
+                <input
+                  type="checkbox"
+                  checked={selectedIds.has(l.id)}
+                  onChange={() => toggleSelect(l.id)}
+                  style={{ accentColor: "#2563eb", width: 16, height: 16, marginTop: 2, cursor: "pointer", flexShrink: 0 }}
+                />
+                <div style={{ flex: 1 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start", marginBottom: 8 }}>
                   <div style={{ flex: 1 }}>
                     <h4
@@ -367,6 +523,7 @@ export default function LessonsLog({ org, lessons, lessonsCount, setLessons, set
                 <div style={{ display: "flex", gap: 12, marginTop: 8, fontSize: 11, color: "#475569" }}>
                   {l.project && <span>📁 {l.project}</span>}
                   {l.location && <span>📍 {l.location}</span>}
+                </div>
                 </div>
               </div>
             );
@@ -415,6 +572,46 @@ export default function LessonsLog({ org, lessons, lessonsCount, setLessons, set
               style={{ ...selectStyle, width: "auto", padding: "4px 8px", fontSize: 12, minWidth: 52 }}>
               {PAGE_SIZE_OPTIONS.map(n => <option key={n} value={n}>{n}</option>)}
             </select>
+          </div>
+        </div>
+      )}
+      {/* Bulk delete confirmation modal */}
+      {showBulkDeleteConfirm && (
+        <div
+          onClick={e => { if (e.target === e.currentTarget) setShowBulkDeleteConfirm(false); }}
+          style={{
+            position: "fixed", inset: 0, zIndex: 9999,
+            background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}
+        >
+          <div style={{
+            background: "#111827", border: "1px solid #1e293b", borderRadius: 12,
+            padding: 32, maxWidth: 440, width: "90%", textAlign: "center",
+          }}>
+            <div style={{ fontSize: 36, marginBottom: 12 }}>⚠️</div>
+            <h3 style={{ fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 18, fontWeight: 700, color: "#e2e8f0", marginBottom: 8 }}>
+              Delete {selectedIds.size} Lesson{selectedIds.size !== 1 ? "s" : ""}?
+            </h3>
+            <p style={{ fontSize: 13, color: "#94a3b8", marginBottom: 24, lineHeight: 1.5 }}>
+              Are you sure you want to delete {selectedIds.size} lesson{selectedIds.size !== 1 ? "s" : ""}? This action cannot be undone.
+            </p>
+            <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
+              <button
+                onClick={() => setShowBulkDeleteConfirm(false)}
+                disabled={bulkActionLoading}
+                style={btnSecondary}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleBulkDelete}
+                disabled={bulkActionLoading}
+                style={{ ...btnPrimary, background: "#dc2626", opacity: bulkActionLoading ? 0.6 : 1 }}
+              >
+                {bulkActionLoading ? "Deleting..." : `Delete ${selectedIds.size} Lesson${selectedIds.size !== 1 ? "s" : ""}`}
+              </button>
+            </div>
           </div>
         </div>
       )}
