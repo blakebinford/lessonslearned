@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import * as api from "../api";
 import { useToast } from "./Toast";
 import LessonModal from "./LessonModal";
@@ -54,6 +54,19 @@ export default function LessonsLog({ org, lessons, lessonsCount, setLessons, set
   const importRef = useRef(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState(null);
   const [modalLesson, setModalLesson] = useState(null);
+  const [stats, setStats] = useState(null);
+
+  const fetchStats = useCallback(async () => {
+    if (!org) return;
+    try {
+      const data = await api.getLessonStats(org.id);
+      setStats(data);
+    } catch (err) {
+      console.error("Failed to fetch stats:", err);
+    }
+  }, [org]);
+
+  useEffect(() => { fetchStats(); }, [fetchStats]);
 
   const fetchLessons = useCallback(async (page, search, discipline, severity, workType, size) => {
     if (!org) return;
@@ -75,8 +88,9 @@ export default function LessonsLog({ org, lessons, lessonsCount, setLessons, set
   }, [org, pageSize, setLessons, setLessonsCount]);
 
   const refreshLessons = useCallback(() => {
+    fetchStats();
     return fetchLessons(lessonsPage, searchText, filterDiscipline, filterSeverity, filterWorkType);
-  }, [fetchLessons, lessonsPage, searchText, filterDiscipline, filterSeverity, filterWorkType]);
+  }, [fetchLessons, fetchStats, lessonsPage, searchText, filterDiscipline, filterSeverity, filterWorkType]);
 
   const totalPages = Math.ceil(lessonsCount / pageSize) || 1;
 
@@ -132,6 +146,7 @@ export default function LessonsLog({ org, lessons, lessonsCount, setLessons, set
       } else {
         await api.createLesson({ ...form, organization: org.id });
         setLessonsPage(1);
+        fetchStats();
         await fetchLessons(1, searchText, filterDiscipline, filterSeverity, filterWorkType, pageSize);
         showToast("Lesson saved", "success");
       }
@@ -211,9 +226,80 @@ export default function LessonsLog({ org, lessons, lessonsCount, setLessons, set
     </div>
   );
 
+  const statCard = { background: "#111827", border: "1px solid #1e293b", borderRadius: 8, padding: "12px 16px", minWidth: 0, flex: 1 };
+  const statLabel = { fontSize: 10, fontWeight: 600, letterSpacing: 1, color: "#64748b", textTransform: "uppercase", marginBottom: 4 };
+  const statValue = { fontSize: 20, fontWeight: 700, color: "#e2e8f0", fontFamily: "'IBM Plex Sans', sans-serif" };
+
+  const renderStatsBar = () => {
+    if (!stats || stats.total === 0) return null;
+    const sevOrder = ["Critical", "High", "Medium", "Low"];
+    const trendDiff = stats.this_month - stats.last_month;
+    const trendArrow = trendDiff > 0 ? "\u2191" : trendDiff < 0 ? "\u2193" : "\u2192";
+    const trendColor = trendDiff > 0 ? "#34d399" : trendDiff < 0 ? "#f87171" : "#94a3b8";
+    return (
+      <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
+        {/* Total */}
+        <div style={statCard}>
+          <div style={statLabel}>Total Lessons</div>
+          <div style={statValue}>{stats.total}</div>
+        </div>
+        {/* Severity breakdown */}
+        <div style={{ ...statCard, flex: 2 }}>
+          <div style={statLabel}>By Severity</div>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 2 }}>
+            {sevOrder.map(s => {
+              const count = stats.by_severity[s] || 0;
+              if (count === 0) return null;
+              const c = SEVERITY_COLORS[s];
+              return <span key={s} style={badge(c)}>{s}: {count}</span>;
+            })}
+          </div>
+        </div>
+        {/* Top disciplines */}
+        <div style={statCard}>
+          <div style={statLabel}>Top Disciplines</div>
+          <div style={{ fontSize: 12, color: "#cbd5e1", lineHeight: 1.7, marginTop: 2 }}>
+            {Object.keys(stats.by_discipline).length === 0
+              ? <span style={{ color: "#475569" }}>--</span>
+              : Object.entries(stats.by_discipline).map(([name, n]) => (
+                  <div key={name} style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</span>
+                    <span style={{ color: "#64748b", fontWeight: 600, flexShrink: 0 }}>{n}</span>
+                  </div>
+                ))}
+          </div>
+        </div>
+        {/* Top work types */}
+        <div style={statCard}>
+          <div style={statLabel}>Top Work Types</div>
+          <div style={{ fontSize: 12, color: "#cbd5e1", lineHeight: 1.7, marginTop: 2 }}>
+            {Object.keys(stats.by_work_type).length === 0
+              ? <span style={{ color: "#475569" }}>--</span>
+              : Object.entries(stats.by_work_type).map(([name, n]) => (
+                  <div key={name} style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</span>
+                    <span style={{ color: "#64748b", fontWeight: 600, flexShrink: 0 }}>{n}</span>
+                  </div>
+                ))}
+          </div>
+        </div>
+        {/* Monthly trend */}
+        <div style={statCard}>
+          <div style={statLabel}>This Month</div>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+            <span style={statValue}>{stats.this_month}</span>
+            <span style={{ fontSize: 16, fontWeight: 700, color: trendColor }}>{trendArrow}</span>
+          </div>
+          <div style={{ fontSize: 11, color: "#475569", marginTop: 2 }}>vs {stats.last_month} last month</div>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <>
       {showForm && renderForm()}
+      {!showForm && renderStatsBar()}
       <input ref={importRef} type="file" accept=".xlsx,.xls,.xlsm,.csv" style={{ display: "none" }}
         onChange={e => { const f = e.target.files?.[0]; if (f) handleImport(f); e.target.value = ""; }} />
       {!showForm && (lessonsCount > 0 || hasActiveFilters) && (
