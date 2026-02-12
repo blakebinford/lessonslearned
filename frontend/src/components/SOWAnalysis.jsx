@@ -141,10 +141,38 @@ export default function SOWAnalysis({ org, lessons, lessonsCount, onLessonsChang
     );
   };
 
+  const handleCopySpecGapsTable = (content) => {
+    if (!content?.referenced_specs) return;
+    const summary = content.summary ? `Summary: ${content.summary}\n\n` : "";
+    const header = ["Code", "Description", "Lessons", "Risk Level", "Risk Areas"].join("\t");
+    const rows = content.referenced_specs.map(spec => {
+      const riskLevel = spec.lesson_count >= 3 ? "High" : spec.lesson_count >= 1 ? "Medium" : "Low";
+      const riskAreas = (spec.risk_areas || []).map(r => `${r.clause_area}: ${r.issue}`).join("; ");
+      return [spec.code, spec.description, spec.lesson_count, riskLevel, riskAreas].join("\t");
+    });
+    let text = summary + [header, ...rows].join("\n");
+    if (content.unreferenced_specs?.length > 0) {
+      text += "\n\nMissing Specifications:\n" + content.unreferenced_specs.map(s => `- ${s}`).join("\n");
+    }
+    if (content.client_spec_risks?.length > 0) {
+      text += "\n\nClient Spec Risks:\n" + content.client_spec_risks.map(s => `- ${s}`).join("\n");
+    }
+    navigator.clipboard.writeText(text).then(
+      () => showToast("Copied spec gaps analysis — paste into Excel or Word", "success"),
+      () => showToast("Failed to copy", "error")
+    );
+  };
+
   // Track expanded risk rows
   const [expandedRisks, setExpandedRisks] = useState({});
   const toggleRiskExpand = (riskId) => {
     setExpandedRisks(prev => ({ ...prev, [riskId]: !prev[riskId] }));
+  };
+
+  // Track expanded spec rows
+  const [expandedSpecs, setExpandedSpecs] = useState({});
+  const toggleSpecExpand = (code) => {
+    setExpandedSpecs(prev => ({ ...prev, [code]: !prev[code] }));
   };
 
   const RISK_LEVEL_COLORS = {
@@ -488,6 +516,132 @@ export default function SOWAnalysis({ org, lessons, lessonsCount, onLessonsChang
     );
   };
 
+  const SPEC_RISK_COLORS = {
+    High: SEVERITY_COLORS.High,
+    Medium: SEVERITY_COLORS.Medium,
+    Low: SEVERITY_COLORS.Low,
+  };
+
+  const renderSpecGaps = (content) => {
+    if (!content?.referenced_specs) return null;
+    return (
+      <div style={{ fontSize: 12 }}>
+        {content.summary && (
+          <p style={{ color: "#cbd5e1", lineHeight: 1.6, margin: "0 0 14px", padding: "10px 12px", background: "#111827", borderRadius: 6, borderLeft: "3px solid #a78bfa" }}>
+            {content.summary}
+          </p>
+        )}
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10 }}>
+          <button
+            onClick={() => handleCopySpecGapsTable(content)}
+            style={{ background: "none", border: "1px solid #334155", borderRadius: 4, padding: "5px 12px", cursor: "pointer", fontSize: 11, color: "#94a3b8" }}
+          >
+            {"\uD83D\uDCCB"} Copy
+          </button>
+        </div>
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+            <thead>
+              <tr>
+                {["Code", "Description", "Lessons", "Risk Level"].map(h => (
+                  <th key={h} style={{ background: "#1e293b", color: "#e2e8f0", padding: "8px 10px", textAlign: "left", fontSize: 10, fontWeight: 600, whiteSpace: "nowrap", borderBottom: "2px solid #334155" }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {content.referenced_specs.map((spec, i) => {
+                const riskLevel = spec.lesson_count >= 3 ? "High" : spec.lesson_count >= 1 ? "Medium" : "Low";
+                const rlc = SPEC_RISK_COLORS[riskLevel] || SPEC_RISK_COLORS.Medium;
+                const isExpanded = expandedSpecs[spec.code];
+                const hasRiskAreas = spec.risk_areas && spec.risk_areas.length > 0;
+                return (
+                  <Fragment key={spec.code || i}>
+                    <tr
+                      onClick={() => hasRiskAreas && toggleSpecExpand(spec.code)}
+                      style={{ background: i % 2 === 0 ? "#0a0e17" : "#0f1629", cursor: hasRiskAreas ? "pointer" : "default", transition: "background 0.15s" }}
+                      onMouseEnter={e => { if (hasRiskAreas) e.currentTarget.style.background = "#1a2332"; }}
+                      onMouseLeave={e => { if (hasRiskAreas) e.currentTarget.style.background = i % 2 === 0 ? "#0a0e17" : "#0f1629"; }}
+                    >
+                      <td style={{ padding: "8px 10px", borderBottom: "1px solid #1e293b", color: "#e2e8f0", fontWeight: 600, whiteSpace: "nowrap" }}>
+                        {hasRiskAreas && <span style={{ fontSize: 9, marginRight: 6, color: "#64748b" }}>{isExpanded ? "\u25BC" : "\u25B6"}</span>}
+                        {spec.code}
+                      </td>
+                      <td style={{ padding: "8px 10px", borderBottom: "1px solid #1e293b", color: "#cbd5e1", maxWidth: 300 }}>{spec.description}</td>
+                      <td style={{ padding: "8px 10px", borderBottom: "1px solid #1e293b", color: "#cbd5e1", textAlign: "center" }}>{spec.lesson_count}</td>
+                      <td style={{ padding: "8px 10px", borderBottom: "1px solid #1e293b", textAlign: "center" }}>
+                        <span style={{ ...badge(rlc), fontSize: 10 }}>{riskLevel}</span>
+                      </td>
+                    </tr>
+                    {isExpanded && hasRiskAreas && (
+                      <tr style={{ background: "#111827" }}>
+                        <td colSpan={4} style={{ padding: "0", borderBottom: "1px solid #1e293b" }}>
+                          {spec.risk_areas.map((area, ai) => (
+                            <div key={ai} style={{ padding: "10px 16px", borderBottom: ai < spec.risk_areas.length - 1 ? "1px solid #1e293b" : "none" }}>
+                              <div style={{ fontSize: 11, fontWeight: 600, color: "#fbbf24", marginBottom: 4 }}>{area.clause_area}</div>
+                              <div style={{ fontSize: 11, color: "#cbd5e1", lineHeight: 1.5, marginBottom: 6 }}>{area.issue}</div>
+                              <div style={{ fontSize: 11, color: "#34d399", lineHeight: 1.5, marginBottom: 4 }}>
+                                <span style={{ fontSize: 10, fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: 1 }}>Recommendation: </span>
+                                {area.recommendation}
+                              </div>
+                              {area.lesson_ids && area.lesson_ids.length > 0 && (
+                                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 4 }}>
+                                  <span style={{ fontSize: 10, fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: 1 }}>Lessons: </span>
+                                  {area.lesson_ids.map((lid, li) => {
+                                    const lessonId = typeof lid === "number" ? lid : parseInt(lid, 10);
+                                    const lesson = !isNaN(lessonId) ? lessons.find(l => l.id === lessonId) : null;
+                                    return lesson ? (
+                                      <span
+                                        key={li}
+                                        onClick={(e) => { e.stopPropagation(); setModalLesson(lesson); }}
+                                        style={{ fontSize: 11, color: "#60a5fa", cursor: "pointer", textDecoration: "underline", textUnderlineOffset: 2 }}
+                                      >
+                                        {lesson.title}
+                                      </span>
+                                    ) : (
+                                      <span key={li} style={{ fontSize: 11, color: "#94a3b8" }}>#{lid}</span>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {content.unreferenced_specs?.length > 0 && (
+          <div style={{ marginTop: 14, padding: "12px 14px", background: "#1a1400", borderRadius: 6, border: "1px solid #854d0e" }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: "#fbbf24", marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
+              {"\u26A0\uFE0F"} Missing Specifications
+            </div>
+            {content.unreferenced_specs.map((spec, i) => (
+              <div key={i} style={{ padding: "6px 0", borderBottom: i < content.unreferenced_specs.length - 1 ? "1px solid #422006" : "none", fontSize: 11, color: "#fde68a", lineHeight: 1.5 }}>
+                {spec}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {content.client_spec_risks?.length > 0 && (
+          <div style={{ marginTop: 14, padding: "12px 14px", background: "#111827", borderRadius: 6, border: "1px solid #334155" }}>
+            <div style={{ fontSize: 10, fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>Client Spec Risks</div>
+            {content.client_spec_risks.map((risk, i) => (
+              <div key={i} style={{ padding: "6px 0", borderBottom: i < content.client_spec_risks.length - 1 ? "1px solid #1e293b" : "none", fontSize: 11, color: "#cbd5e1", lineHeight: 1.5, borderLeft: "2px solid #fb923c", paddingLeft: 10 }}>
+                {risk}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const fetchHistory = useCallback(async () => {
     if (!org) return;
     setLoadingHistory(true);
@@ -819,7 +973,7 @@ export default function SOWAnalysis({ org, lessons, lessonsCount, onLessonsChang
                 const loading = deliverablesLoading[card.type];
                 const isStaffing = card.type === "staffing_estimate";
                 return (
-                  <div key={card.type} style={{ background: "#0a0e17", borderRadius: 8, border: content ? "1px solid #334155" : "1px solid #1e293b", overflow: "hidden", gridColumn: isStaffing && (staffingFormOpen || (content?.positions)) ? "1 / -1" : undefined }}>
+                  <div key={card.type} style={{ background: "#0a0e17", borderRadius: 8, border: content ? "1px solid #334155" : "1px solid #1e293b", overflow: "hidden", gridColumn: (isStaffing && (staffingFormOpen || content?.positions)) || (card.type === "spec_gaps" && content?.referenced_specs) ? "1 / -1" : undefined }}>
                     <div style={{ padding: "14px 16px" }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
                         <div>
@@ -827,7 +981,7 @@ export default function SOWAnalysis({ org, lessons, lessonsCount, onLessonsChang
                           <span style={{ fontSize: 13, fontWeight: 600, color: "#e2e8f0" }}>{card.label}</span>
                         </div>
                         <div style={{ display: "flex", gap: 6 }}>
-                          {content && !isStaffing && (
+                          {content && !isStaffing && card.type !== "spec_gaps" && (
                             <button
                               onClick={() => handleCopyDeliverable(content)}
                               style={{ background: "none", border: "1px solid #334155", borderRadius: 4, padding: "4px 8px", cursor: "pointer", fontSize: 11, color: "#94a3b8" }}
@@ -877,6 +1031,8 @@ export default function SOWAnalysis({ org, lessons, lessonsCount, onLessonsChang
                           renderRiskRegister(content)
                         ) : isStaffing && content.positions ? (
                           renderStaffingEstimate(content)
+                        ) : card.type === "spec_gaps" && content.referenced_specs ? (
+                          renderSpecGaps(content)
                         ) : (
                           <pre style={{ fontSize: 12, color: "#cbd5e1", margin: 0, whiteSpace: "pre-wrap", lineHeight: 1.6 }}>
                             {typeof content === "string" ? content : JSON.stringify(content, null, 2)}
