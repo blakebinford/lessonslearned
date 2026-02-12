@@ -175,6 +175,20 @@ export async function analyzeSOW(orgId, sowText, workType, filename) {
   return handleResponse(resp);
 }
 
+// ── SOW Deliverables ──
+export async function generateDeliverable(analysisId, deliverableType, params = {}) {
+  const resp = await fetch(`${BASE}/sow/deliverable/`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify({
+      analysis_id: analysisId,
+      deliverable_type: deliverableType,
+      params,
+    }),
+  });
+  return handleResponse(resp);
+}
+
 // ── SOW Export ──
 export async function exportSOWExcel(analysisId) {
   const resp = await fetch(`${BASE}/sow/export-xlsx/`, {

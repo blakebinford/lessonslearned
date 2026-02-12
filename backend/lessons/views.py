@@ -281,6 +281,60 @@ def analyze_sow(request):
 
 
 @api_view(["POST"])
+def generate_deliverable(request):
+    """Generate an on-demand deliverable from an existing SOW analysis."""
+    analysis_id = request.data.get("analysis_id")
+    deliverable_type = request.data.get("deliverable_type", "")
+    params = request.data.get("params", {})
+
+    if not analysis_id:
+        return Response({"error": "analysis_id is required"}, status=400)
+    if deliverable_type not in ai.DELIVERABLE_TYPES:
+        return Response(
+            {"error": f"Invalid deliverable_type. Must be one of: {sorted(ai.DELIVERABLE_TYPES)}"},
+            status=400,
+        )
+
+    analysis = get_object_or_404(
+        SOWAnalysis, id=analysis_id, organization__created_by=request.user
+    )
+
+    # Load lessons for the organization
+    lessons_list = list(
+        Lesson.objects.filter(organization=analysis.organization).values(
+            "id", "title", "description", "root_cause", "recommendation",
+            "impact", "work_type", "phase", "discipline", "severity",
+            "environment", "project", "location", "keywords",
+        )
+    )
+
+    org_profile = {
+        "name": analysis.organization.name,
+        "profile_text": analysis.organization.profile_text,
+    }
+
+    try:
+        context = ai._build_analysis_context(analysis, lessons_list, org_profile)
+        content = ai.generate_deliverable(deliverable_type, context, params)
+    except Exception as e:
+        logger.exception("Deliverable generation failed")
+        return Response({"error": str(e)}, status=500)
+
+    # Persist the deliverable in the analysis results JSON
+    results = analysis.results or {}
+    if "deliverables" not in results:
+        results["deliverables"] = {}
+    results["deliverables"][deliverable_type] = content
+    analysis.results = results
+    analysis.save(update_fields=["results"])
+
+    return Response({
+        "deliverable_type": deliverable_type,
+        "content": content,
+    })
+
+
+@api_view(["POST"])
 def upload_sow_file(request):
     """Extract text from an uploaded SOW document."""
     uploaded = request.FILES.get("file")

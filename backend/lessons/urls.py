@@ -10,6 +10,7 @@ router.register(r"sow-analyses", views.SOWAnalysisViewSet, basename="sow-analysi
 urlpatterns = [
     path("", include(router.urls)),
     path("sow/analyze/", views.analyze_sow, name="analyze-sow"),
+    path("sow/deliverable/", views.generate_deliverable, name="generate-deliverable"),
     path("sow/upload/", views.upload_sow_file, name="upload-sow"),
     path("sow/export-xlsx/", views.export_sow_xlsx, name="export-sow-xlsx"),
     path("chat/", views.chat_analyst, name="chat-analyst"),
